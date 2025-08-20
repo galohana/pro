@@ -353,10 +353,12 @@ tfPrioByShort(_short) =>
         => 0
 
 isTFTag(_tag) =>
-    str.startswith(_tag, "1D") or
-    str.startswith(_tag, "4H") or
-    str.startswith(_tag, "1H") or
-    str.startswith(_tag, "30m")
+    switch
+        str.startswith(_tag, "1D")  => true
+        str.startswith(_tag, "4H")  => true
+        str.startswith(_tag, "1H")  => true
+        str.startswith(_tag, "30m") => true
+        => false
 
 shortFromTf(string _tf) =>
     _tf == "D"     ? "1D"  :
