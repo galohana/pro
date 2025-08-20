@@ -414,21 +414,33 @@ collectLiquidityForTF(_tf, _len) =>
     string s = shortFromTf(_tf)
     // search last N occurrences for both sides
     int N = 20
-    // HIGH pivots
+
+    // Batch fetch pivot data once per side
+    bool  hPiv = request.security(syminfo.tickerid, _tf, not na(ta.pivothigh(high, _len, _len)), barmerge.gaps_off, barmerge.lookahead_off)
+    float hSrc = request.security(syminfo.tickerid, _tf, ta.highest(high, _len * 2 + 1)[_len],            barmerge.gaps_off, barmerge.lookahead_off)
+    bool  lPiv = request.security(syminfo.tickerid, _tf, not na(ta.pivotlow(low,  _len, _len)),  barmerge.gaps_off, barmerge.lookahead_off)
+    float lSrc = request.security(syminfo.tickerid, _tf, ta.lowest(low,  _len * 2 + 1)[_len],             barmerge.gaps_off, barmerge.lookahead_off)
+    int   pTim = request.security(syminfo.tickerid, _tf, time[_len],                                         barmerge.gaps_off, barmerge.lookahead_off)
+
+    bool foundH = false
+    bool foundL = false
     for k = 0 to N - 1
-        float hExt = request.security(syminfo.tickerid, _tf, ta.valuewhen(not na(ta.pivothigh(high, _len, _len)), ta.highest(high, _len*2 + 1)[_len], k), barmerge.gaps_off, barmerge.lookahead_off)
-        int   hTim = request.security(syminfo.tickerid, _tf, ta.valuewhen(not na(ta.pivothigh(high, _len, _len)), time[_len], k), barmerge.gaps_off, barmerge.lookahead_off)
-        if not na(hExt) and not na(hTim)
-            // keep only within window
-            if withinWindow(hExt)
-                tryInsertLQ(s, true,  hExt, hTim)
-    // LOW pivots
-    for k = 0 to N - 1
-        float lExt = request.security(syminfo.tickerid, _tf, ta.valuewhen(not na(ta.pivotlow(low, _len, _len)), ta.lowest(low, _len*2 + 1)[_len], k), barmerge.gaps_off, barmerge.lookahead_off)
-        int   lTim = request.security(syminfo.tickerid, _tf, ta.valuewhen(not na(ta.pivotlow(low, _len, _len)), time[_len], k), barmerge.gaps_off, barmerge.lookahead_off)
-        if not na(lExt) and not na(lTim)
-            if withinWindow(lExt)
-                tryInsertLQ(s, false, lExt, lTim)
+        if not foundH
+            float hExt = ta.valuewhen(hPiv, hSrc, k)
+            int   hTim = ta.valuewhen(hPiv, pTim, k)
+            if na(hExt)
+                foundH := true
+            else if withinWindow(hExt)
+                foundH := tryInsertLQ(s, true,  hExt, hTim)
+        if not foundL
+            float lExt = ta.valuewhen(lPiv, lSrc, k)
+            int   lTim = ta.valuewhen(lPiv, pTim, k)
+            if na(lExt)
+                foundL := true
+            else if withinWindow(lExt)
+                foundL := tryInsertLQ(s, false, lExt, lTim)
+        if foundH and foundL
+            break
 
 // Collect candidate levels exactly at 15:30 (NY start)
 if fStart(sessNY)
