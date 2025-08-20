@@ -399,16 +399,16 @@ collectLiquidityForTF(_tf, _len) =>
     bool foundH = false
     bool foundL = false
     for k = 0 to N - 1
+        float hExt = ta.valuewhen(hPiv, hSrc, k)
+        int   hTim = ta.valuewhen(hPiv, pTim, k)
+        float lExt = ta.valuewhen(lPiv, lSrc, k)
+        int   lTim = ta.valuewhen(lPiv, pTim, k)
         if not foundH
-            float hExt = ta.valuewhen(hPiv, hSrc, k)
-            int   hTim = ta.valuewhen(hPiv, pTim, k)
             if na(hExt)
                 foundH := true
             else if withinWindow(hExt)
-                foundH := tryInsertLQ(s, true,  hExt, hTim)
+                foundH := tryInsertLQ(s, true, hExt, hTim)
         if not foundL
-            float lExt = ta.valuewhen(lPiv, lSrc, k)
-            int   lTim = ta.valuewhen(lPiv, pTim, k)
             if na(lExt)
                 foundL := true
             else if withinWindow(lExt)
@@ -596,7 +596,10 @@ mkZone(_t, _top, _bot, _kind, _dir, _colBase) =>
     trackLabel(lb)
     Zone.new(bx=bx, mid=mid, topLn=tL, botLn=bL, tag=lb, kind=_kind, dir=_dir, top=zTop, bot=zBot, t0=_t, invalidated=false)
 
-var int lastBFVG = na, lastSFVG = na, lastBOB = na, lastSOB = na
+var int lastBFVG = na
+var int lastSFVG = na
+var int lastBOB = na
+var int lastSOB = na
 baseCol(kind) =>
     kind == "OB" ? color.orange :
      kind == "BB" ? color.purple :
