@@ -242,9 +242,7 @@ var string nyLine    = ""
 var string biasTxt   = "Neutral"
 var color  scenColor = color.gray
 var bool   scenReady = false
-var bool   scenFrozen2 = false
-
-if fStart(sessNY)
+if fStart(sessNY) and not scenFrozen
     float upMove = math.max(nz(ldnHigh) - nz(ldnOpen), 0)
     float dnMove = math.max(nz(ldnOpen) - nz(ldnLow),  0)
     bool highFirst = not na(ldnHighIdx) and not na(ldnLowIdx) and ldnHighIdx < ldnLowIdx
@@ -269,7 +267,7 @@ if fStart(sessNY)
 
     scenColor := scenCode == "1" ? color.purple : scenCode == "2" ? color.aqua : color.blue
     scenReady := true
-    scenFrozen2 := true
+    scenFrozen := true
 
 if fStart(sessAsia)
     scenCode  := "—"
@@ -278,7 +276,7 @@ if fStart(sessAsia)
     biasTxt   := "Neutral"
     scenColor := color.gray
     scenReady := false
-    scenFrozen2 := false
+    scenFrozen := false
 
 //========================= HTF LIQUIDITY =========================
 type Lvl
