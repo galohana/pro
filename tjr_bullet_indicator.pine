@@ -541,6 +541,25 @@ if fStart("2300-2301")
         for k = bxN - 1 to 0
             safeDelBox(array.get(gBoxes, k))
         array.clear(gBoxes)
+    int zN = array.size(zones)
+    if zN > 0
+        for zi = zN - 1 to 0
+            Zone z = array.get(zones, zi)
+            safeDelBox(z.bx)
+            safeDelLine(z.mid)
+            safeDelLine(z.topLn)
+            safeDelLine(z.botLn)
+            safeDelLabel(z.tag)
+        array.clear(zones)
+    hasDS := false
+    hasCT := false
+    dsTime := na
+    ctTime := na
+    chosenIdx := na
+    oneMinTouched := false
+    oneMinConfirmed := false
+    entryPx := na
+    entryTs := na
     safeDelLine(asiaHLn)
     safeDelLine(asiaLLn)
     asiaHLn := na
