@@ -361,10 +361,12 @@ isTFTag(_tag) =>
         => false
 
 shortFromTf(string _tf) =>
-    _tf == "D"     ? "1D"  :
-    _tf == "240"   ? "4H"  :
-    _tf == "60"    ? "1H"  :
-    _tf == "30"    ? "30m" : _tf
+    switch _tf
+        "D"    => "1D"
+        "240"  => "4H"
+        "60"   => "1H"
+        "30"   => "30m"
+        => _tf
 
 // Insert with de-dup and precedence; LQ levels are intraday (persist=false)
 tryInsertLQ(_short, _isHigh, _price, _t) =>
