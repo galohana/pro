@@ -50,6 +50,21 @@ safeDelBox(bx) =>
             array.remove(gBoxes, idx)
         box.delete(bx)
 
+type Zone
+    box   bx
+    line  mid
+    line  topLn
+    line  botLn
+    label tag
+    string kind
+    string dir
+    float  top
+    float  bot
+    int    t0
+    bool   invalidated
+
+var Zone[] zones = array.new<Zone>()
+
 //========================= Inputs & Colors =========================
 string TZ         = input.string("Asia/Jerusalem", "Timezone (fixed)")
 string sessAsia   = input.session("0100-1000", "Asia (TLV)")
@@ -595,20 +610,6 @@ timeBearOB = request.security(syminfo.tickerid, "5", breakDn5 and close[1] > ope
 sOBTop     = request.security(syminfo.tickerid, "5", breakDn5 and close[1] > open[1] ? high[1] : na, barmerge.gaps_off, barmerge.lookahead_off)
 sOBBot     = request.security(syminfo.tickerid, "5", breakDn5 and close[1] > open[1] ? open[1] : na, barmerge.gaps_off, barmerge.lookahead_off)
 
-type Zone
-    box   bx
-    line  mid
-    line  topLn
-    line  botLn
-    label tag
-    string kind
-    string dir
-    float  top
-    float  bot
-    int    t0
-    bool   invalidated
-
-var Zone[] zones = array.new<Zone>()
 mkZone(_t, _top, _bot, _kind, _dir, _colBase) =>
     float zTop = math.max(_top, _bot)
     float zBot = math.min(_top, _bot)
