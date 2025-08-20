@@ -396,13 +396,38 @@ collectLiquidityForTF(_tf, _len) =>
     float lSrc = request.security(syminfo.tickerid, _tf, ta.lowest(low,  _len * 2 + 1)[_len],             barmerge.gaps_off, barmerge.lookahead_off)
     int   pTim = request.security(syminfo.tickerid, _tf, time[_len],                                       barmerge.gaps_off, barmerge.lookahead_off)
 
+    float[] hExtArr = array.from(
+        ta.valuewhen(hPiv, hSrc, 0),  ta.valuewhen(hPiv, hSrc, 1),  ta.valuewhen(hPiv, hSrc, 2),  ta.valuewhen(hPiv, hSrc, 3),
+        ta.valuewhen(hPiv, hSrc, 4),  ta.valuewhen(hPiv, hSrc, 5),  ta.valuewhen(hPiv, hSrc, 6),  ta.valuewhen(hPiv, hSrc, 7),
+        ta.valuewhen(hPiv, hSrc, 8),  ta.valuewhen(hPiv, hSrc, 9),  ta.valuewhen(hPiv, hSrc, 10), ta.valuewhen(hPiv, hSrc, 11),
+        ta.valuewhen(hPiv, hSrc, 12), ta.valuewhen(hPiv, hSrc, 13), ta.valuewhen(hPiv, hSrc, 14), ta.valuewhen(hPiv, hSrc, 15),
+        ta.valuewhen(hPiv, hSrc, 16), ta.valuewhen(hPiv, hSrc, 17), ta.valuewhen(hPiv, hSrc, 18), ta.valuewhen(hPiv, hSrc, 19))
+    int[]   hTimArr = array.from(
+        ta.valuewhen(hPiv, pTim, 0),  ta.valuewhen(hPiv, pTim, 1),  ta.valuewhen(hPiv, pTim, 2),  ta.valuewhen(hPiv, pTim, 3),
+        ta.valuewhen(hPiv, pTim, 4),  ta.valuewhen(hPiv, pTim, 5),  ta.valuewhen(hPiv, pTim, 6),  ta.valuewhen(hPiv, pTim, 7),
+        ta.valuewhen(hPiv, pTim, 8),  ta.valuewhen(hPiv, pTim, 9),  ta.valuewhen(hPiv, pTim, 10), ta.valuewhen(hPiv, pTim, 11),
+        ta.valuewhen(hPiv, pTim, 12), ta.valuewhen(hPiv, pTim, 13), ta.valuewhen(hPiv, pTim, 14), ta.valuewhen(hPiv, pTim, 15),
+        ta.valuewhen(hPiv, pTim, 16), ta.valuewhen(hPiv, pTim, 17), ta.valuewhen(hPiv, pTim, 18), ta.valuewhen(hPiv, pTim, 19))
+    float[] lExtArr = array.from(
+        ta.valuewhen(lPiv, lSrc, 0),  ta.valuewhen(lPiv, lSrc, 1),  ta.valuewhen(lPiv, lSrc, 2),  ta.valuewhen(lPiv, lSrc, 3),
+        ta.valuewhen(lPiv, lSrc, 4),  ta.valuewhen(lPiv, lSrc, 5),  ta.valuewhen(lPiv, lSrc, 6),  ta.valuewhen(lPiv, lSrc, 7),
+        ta.valuewhen(lPiv, lSrc, 8),  ta.valuewhen(lPiv, lSrc, 9),  ta.valuewhen(lPiv, lSrc, 10), ta.valuewhen(lPiv, lSrc, 11),
+        ta.valuewhen(lPiv, lSrc, 12), ta.valuewhen(lPiv, lSrc, 13), ta.valuewhen(lPiv, lSrc, 14), ta.valuewhen(lPiv, lSrc, 15),
+        ta.valuewhen(lPiv, lSrc, 16), ta.valuewhen(lPiv, lSrc, 17), ta.valuewhen(lPiv, lSrc, 18), ta.valuewhen(lPiv, lSrc, 19))
+    int[]   lTimArr = array.from(
+        ta.valuewhen(lPiv, pTim, 0),  ta.valuewhen(lPiv, pTim, 1),  ta.valuewhen(lPiv, pTim, 2),  ta.valuewhen(lPiv, pTim, 3),
+        ta.valuewhen(lPiv, pTim, 4),  ta.valuewhen(lPiv, pTim, 5),  ta.valuewhen(lPiv, pTim, 6),  ta.valuewhen(lPiv, pTim, 7),
+        ta.valuewhen(lPiv, pTim, 8),  ta.valuewhen(lPiv, pTim, 9),  ta.valuewhen(lPiv, pTim, 10), ta.valuewhen(lPiv, pTim, 11),
+        ta.valuewhen(lPiv, pTim, 12), ta.valuewhen(lPiv, pTim, 13), ta.valuewhen(lPiv, pTim, 14), ta.valuewhen(lPiv, pTim, 15),
+        ta.valuewhen(lPiv, pTim, 16), ta.valuewhen(lPiv, pTim, 17), ta.valuewhen(lPiv, pTim, 18), ta.valuewhen(lPiv, pTim, 19))
+
     bool foundH = false
     bool foundL = false
     for k = 0 to N - 1
-        float hExt = ta.valuewhen(hPiv, hSrc, k)
-        int   hTim = ta.valuewhen(hPiv, pTim, k)
-        float lExt = ta.valuewhen(lPiv, lSrc, k)
-        int   lTim = ta.valuewhen(lPiv, pTim, k)
+        float hExt = array.get(hExtArr, k)
+        int   hTim = array.get(hTimArr, k)
+        float lExt = array.get(lExtArr, k)
+        int   lTim = array.get(lTimArr, k)
         if not foundH
             if na(hExt)
                 foundH := true
