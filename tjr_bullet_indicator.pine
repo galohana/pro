@@ -5,6 +5,7 @@ indicator("TJR Bolt • Full (v1.4.4-ui-align+4H)", overlay=true, max_lines_coun
 //========================= Object store =========================
 const int MAX_LINES  = 500
 const int MAX_LABELS = 300
+const int MAX_BOXES  = 180
 
 var line[]  gLines  = array.new_line()
 var label[] gLabels = array.new_label()
@@ -26,7 +27,7 @@ trackLabel(id) =>
 trackBox(id) =>
     if not na(id)
         array.push(gBoxes, id)
-        if array.size(gBoxes) > 180
+        if array.size(gBoxes) > MAX_BOXES
             box.delete(array.shift(gBoxes))
 
 safeDelLine(ln) =>
