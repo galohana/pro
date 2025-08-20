@@ -9,7 +9,6 @@ const int MAX_BOXES  = 180
 
 var line[]  gLines  = array.new_line()
 var label[] gLabels = array.new_label()
-// Boxes store (new)
 var box[]   gBoxes  = array.new_box()
 
 trackLine(id) =>
@@ -73,7 +72,6 @@ bool  use_ticks_per_point = input.bool(false, "Use ticks per point")
 float ticks_per_point = input.float(4, "Ticks per point")
 float point_size = input.float(1, "Point size")
 
-// New: swing lookback for liquidity pivots
 int liq_swing_lookback = input.int(4, "LQ swing lookback (len_l)", minval=1)
 
 bool show_scenario_tile      = input.bool(true,  "Show Scenario Tile")
@@ -105,18 +103,15 @@ newVLineAtTime(_ts) =>
     array.push(vlines, ln)
     trackLine(ln)
 
-// Day-key and build guard
 var int _dayKey = na
 var bool _builtToday = false
 
 buildTodayVlines(_t0100, _t1000, _t1530, _t1630, _t1650, _t1730) =>
-    // clear leftovers first
     int vCount = array.size(vlines)
     if vCount > 0
         for i = vCount - 1 to 0
             safeDelLine(array.get(vlines, i))
         array.clear(vlines)
-    // draw today's verticals
     newVLineAtTime(_t0100)
     newVLineAtTime(_t1000)
     newVLineAtTime(_t1530)
@@ -136,7 +131,6 @@ if barstate.isnew
         _builtToday := false
         _dayKey := _today
 
-// Build at 01:00 sharp; also build on higher TFs once after 01:00
 int t0100 = timestamp(TZ, year, month, dayofmonth, 1, 0)
 int t1000 = timestamp(TZ, year, month, dayofmonth, 10, 0)
 int t1530 = timestamp(TZ, year, month, dayofmonth, 15, 30)
@@ -146,11 +140,9 @@ int t1730 = timestamp(TZ, year, month, dayofmonth, 17, 30)
 
 if fStart(sessAsia)
     _builtToday := buildTodayVlines(t0100, t1000, t1530, t1630, t1650, t1730)
-// Higher TF safety: if after 01:00 and not built yet, build once
 if not _builtToday and timenow >= t0100
     _builtToday := buildTodayVlines(t0100, t1000, t1530, t1630, t1650, t1730)
 
-// 23:00 – remove today’s verticals
 if fStart("2300-2301")
     int vCount2 = array.size(vlines)
     if vCount2 > 0
@@ -159,7 +151,7 @@ if fStart("2300-2301")
         array.clear(vlines)
     _builtToday := false
 
-//========================= Asia H/L (anchored 01:00, lock 10:00) =========================
+//========================= Asia H/L =========================
 var float asiaH = na
 var float asiaL = na
 var int   asiaHTs = na
@@ -180,7 +172,6 @@ if fStart(sessAsia)
     asiaLTaken := false
     safeDelLine(asiaHLn)
     safeDelLine(asiaLLn)
-    // strict horizontal segments
     asiaHLn := line.new(asiaHTs, asiaH, asiaHTs + 1, asiaH, xloc=xloc.bar_time, extend=extend.right, color=colAsiaH, width=2)
     asiaLLn := line.new(asiaLTs, asiaL, asiaLTs + 1, asiaL, xloc=xloc.bar_time, extend=extend.right, color=colAsiaL, width=2)
     trackLine(asiaHLn)
@@ -206,7 +197,6 @@ if fEnd(sessAsia)
     asiaLTaken := false
 
 if asiaLocked
-    // dotted when taken
     if not asiaHTaken and high >= asiaH and not na(asiaHLn)
         line.set_style(asiaHLn, line.style_dotted)
         asiaHTaken := true
@@ -214,7 +204,7 @@ if asiaLocked
         line.set_style(asiaLLn, line.style_dotted)
         asiaLTaken := true
 
-//========================= London stats (for scenario) =========================
+//========================= London stats =========================
 var float ldnHigh = na
 var float ldnLow  = na
 var float ldnOpen = na
@@ -231,7 +221,7 @@ if fStart(sessLondon)
     ldnHighIdx := bar_index
     ldnLowIdx  := bar_index
     ldnHitHigh := false
-    ldnHitLow  := false
+    ldnHitLow := false
 
 if fIn(sessLondon) and not scenFrozen
     if high > nz(ldnHigh, high)
@@ -245,21 +235,19 @@ if fIn(sessLondon) and not scenFrozen
     if not na(asiaL) and low <= asiaL
         ldnHitLow := true
 
-//========================= Scenario (gated to 15:30) =========================
+//========================= Scenario (freeze at 15:30) =========================
 var string scenCode  = "—"
 var string scenBody  = ""
 var string nyLine    = ""
 var string biasTxt   = "Neutral"
 var color  scenColor = color.gray
 var bool   scenReady = false
+var bool   scenFrozen2 = false
 
-// Freeze London stats strictly at 15:30 and compute once
 if fStart(sessNY)
-    // Retrace logic (Scenario 2 if >=35%)
     float upMove = math.max(nz(ldnHigh) - nz(ldnOpen), 0)
     float dnMove = math.max(nz(ldnOpen) - nz(ldnLow),  0)
     bool highFirst = not na(ldnHighIdx) and not na(ldnLowIdx) and ldnHighIdx < ldnLowIdx
-    // Prefer explicit Asia-liquidity take; fallback to order of high/low
     string lastSide = ldnHitHigh ? "B" : ldnHitLow ? "S" : (highFirst ? "B" : "S")
     float pctRetrace = upMove >= dnMove ? (upMove == 0 ? 0 : dnMove / upMove) : (dnMove == 0 ? 0 : upMove / dnMove)
 
@@ -269,12 +257,10 @@ if fStart(sessNY)
     biasTxt  := "Neutral"
 
     if ldnHitHigh or ldnHitLow
-        // Scenario 1 baseline
         scenCode := "1"
         scenBody := "London = Manipulation"
         nyLine   := "New York = Reversal"
         biasTxt  := lastSide == "B" ? "SHORTS" : "LONGS"
-        // Scenario 2 override by ≥35% retrace
         if pctRetrace >= 0.35
             scenCode := "2"
             scenBody := "London = Manip+Reversal"
@@ -283,9 +269,8 @@ if fStart(sessNY)
 
     scenColor := scenCode == "1" ? color.purple : scenCode == "2" ? color.aqua : color.blue
     scenReady := true
-    scenFrozen := true
+    scenFrozen2 := true
 
-// Reset scenario at 01:00 start of day
 if fStart(sessAsia)
     scenCode  := "—"
     scenBody  := ""
@@ -293,9 +278,9 @@ if fStart(sessAsia)
     biasTxt   := "Neutral"
     scenColor := color.gray
     scenReady := false
-    scenFrozen := false
+    scenFrozen2 := false
 
-//========================= HTF LIQUIDITY (with pill labels) =========================
+//========================= HTF LIQUIDITY =========================
 type Lvl
     line   ln
     label  lb
@@ -309,11 +294,11 @@ type Lvl
 var Lvl[] lvls = array.new<Lvl>()
 sec(tfStr, expr) => request.security(syminfo.tickerid, tfStr, expr, barmerge.gaps_off, barmerge.lookahead_off)
 
-// 15:30 filter anchor (±window_abs)
+// 15:30 anchor
 var float px1530 = na
-// Helper: skip levels that were “taken” at 15:30
+// *** CHANGED: wick-based taken check ***
 isTakenAt1530(_price, _isHigh) =>
-    _isHigh ? (close > _price) : (close < _price)
+    _isHigh ? (high > _price) : (low < _price)
 
 withinWindow(_p) =>
     na(px1530) or math.abs(_p - px1530) <= window_abs
@@ -334,8 +319,7 @@ mkLevel(_price, _tag, _persist, _t, _labelText, _isKey=false) =>
         trackLine(ln)
         trackLabel(lb)
 
-//=== Liquidity detection refactor: precedence + precise extremes (run at 15:30) ===//
-// Priority helper
+//=== Precedence helpers ===
 tfPrioByTag(_tag) =>
     switch
         str.startswith(_tag, "1D")  => 4
@@ -353,12 +337,7 @@ tfPrioByShort(_short) =>
         => 0
 
 isTFTag(_tag) =>
-    switch
-        str.startswith(_tag, "1D")  => true
-        str.startswith(_tag, "4H")  => true
-        str.startswith(_tag, "1H")  => true
-        str.startswith(_tag, "30m") => true
-        => false
+    str.startswith(_tag, "1D") or str.startswith(_tag, "4H") or str.startswith(_tag, "1H") or str.startswith(_tag, "30m")
 
 shortFromTf(string _tf) =>
     switch _tf
@@ -368,22 +347,19 @@ shortFromTf(string _tf) =>
         "30"   => "30m"
         => _tf
 
-// Insert with de-dup and precedence; LQ levels are intraday (persist=false)
+// *** CHANGED: eps = 3 * mintick ***
 tryInsertLQ(_short, _isHigh, _price, _t) =>
     if not withinWindow(_price)
-        // outside window
         false
     else
         if isTakenAt1530(_price, _isHigh)
-            // already taken by 15:30
             false
         else
             string _tag = _short + " " + (_isHigh ? "High" : "Low")
             string _lbTxt = _short + " · LQ"
             int newPrio = tfPrioByShort(_short)
-            float eps = syminfo.mintick * 2.0
+            float eps = syminfo.mintick * 3.0
             int n = array.size(lvls)
-            // scan existing near price
             int bestIdx = na
             int bestPr  = -1
             for i = 0 to n - 1
@@ -393,14 +369,11 @@ tryInsertLQ(_short, _isHigh, _price, _t) =>
                     if pr > bestPr
                         bestPr := pr
                         bestIdx := i
-            // precedence
             if not na(bestIdx)
                 Lvl ex = array.get(lvls, bestIdx)
                 int exPr = tfPrioByTag(ex.tag)
-                // Replace if new is higher TF, or equal TF but existing is persistent (we prefer intraday LQ that clears @23:00)
                 bool shouldReplace = (newPrio > exPr) or (newPrio == exPr and ex.persist and not na(ex.ln))
                 if shouldReplace
-                    // delete all lower-priority duplicates within eps
                     for j = n - 1 to 0
                         Lvl it2 = array.get(lvls, j)
                         if isTFTag(it2.tag) and math.abs(it2.price - _price) <= eps and tfPrioByTag(it2.tag) <= exPr
@@ -414,18 +387,14 @@ tryInsertLQ(_short, _isHigh, _price, _t) =>
                 mkLevel(_price, _tag, false, _t, _lbTxt)
                 true
 
-// Collect pivots for a TF and try inserting
 collectLiquidityForTF(_tf, _len) =>
     string s = shortFromTf(_tf)
-    // search last N occurrences for both sides
     int N = 20
-
-    // Batch fetch pivot data once per side
     bool  hPiv = request.security(syminfo.tickerid, _tf, not na(ta.pivothigh(high, _len, _len)), barmerge.gaps_off, barmerge.lookahead_off)
     float hSrc = request.security(syminfo.tickerid, _tf, ta.highest(high, _len * 2 + 1)[_len],            barmerge.gaps_off, barmerge.lookahead_off)
-    bool  lPiv = request.security(syminfo.tickerid, _tf, not na(ta.pivotlow(low,  _len, _len)),  barmerge.gaps_off, barmerge.lookahead_off)
+    bool  lPiv = request.security(syminfo.tickerid, _tf, not na(ta.pivotlow(low,  _len, _len)), barmerge.gaps_off, barmerge.lookahead_off)
     float lSrc = request.security(syminfo.tickerid, _tf, ta.lowest(low,  _len * 2 + 1)[_len],             barmerge.gaps_off, barmerge.lookahead_off)
-    int   pTim = request.security(syminfo.tickerid, _tf, time[_len],                                         barmerge.gaps_off, barmerge.lookahead_off)
+    int   pTim = request.security(syminfo.tickerid, _tf, time[_len],                                       barmerge.gaps_off, barmerge.lookahead_off)
 
     bool foundH = false
     bool foundL = false
@@ -447,11 +416,10 @@ collectLiquidityForTF(_tf, _len) =>
         if foundH and foundL
             break
 
-// Collect candidate levels exactly at 15:30 (NY start)
+//========================= 15:30: build levels =========================
 if fStart(sessNY)
     px1530 := close
 
-    // clear only intraday/key levels; keep persistent 4H/1D
     int lvlSize = array.size(lvls)
     if lvlSize > 0
         for i = lvlSize - 1 to 0
@@ -462,19 +430,20 @@ if fStart(sessNY)
                 safeDelLabel(it.lb)
                 array.remove(lvls, i)
 
-    // Strict previous daily values [1] at 15:30
     float dH = request.security(syminfo.tickerid, "D", high,  barmerge.gaps_off, barmerge.lookahead_off)[1]
     float dL = request.security(syminfo.tickerid, "D", low,   barmerge.gaps_off, barmerge.lookahead_off)[1]
     int   dT = request.security(syminfo.tickerid, "D", time,  barmerge.gaps_off, barmerge.lookahead_off)[1]
 
-    // === New LQ swing-based scan with precedence ===
-    // Run from lowest TF to highest; higher TF will up-rank via tryInsertLQ
-    collectLiquidityForTF("30",  liq_swing_lookback)
-    collectLiquidityForTF("60",  liq_swing_lookback)
-    collectLiquidityForTF("240", liq_swing_lookback)
-    collectLiquidityForTF("D",   liq_swing_lookback)
+    // *** CHANGED: honor toggles ***
+    if show30m
+        collectLiquidityForTF("30",  liq_swing_lookback)
+    if show1H
+        collectLiquidityForTF("60",  liq_swing_lookback)
+    if show4H
+        collectLiquidityForTF("240", liq_swing_lookback)
+    if showDaily
+        collectLiquidityForTF("D",   liq_swing_lookback)
 
-    // key levels: Asia H/L (not taken by 15:30) and Daily-prev (within window & not taken)
     if not na(asiaH) and not asiaHTaken and withinWindow(asiaH) and not isTakenAt1530(asiaH, true)
         mkLevel(asiaH, "key Asia High", false, asiaHTs, "key level", true)
     if not na(asiaL) and not asiaLTaken and withinWindow(asiaL) and not isTakenAt1530(asiaL, false)
@@ -484,7 +453,7 @@ if fStart(sessNY)
     if withinWindow(dL) and not isTakenAt1530(dL, false)
         mkLevel(dL, "key Daily Low",  false, dT, "key level", true)
 
-// Daily TF support: always show yesterday’s 1D high/low on Daily chart as non-key HTF levels
+//========================= Daily TF support =========================
 if timeframe.isdaily and showHTF and showDaily
     float dH_d = request.security(syminfo.tickerid, "D", high,  barmerge.gaps_off, barmerge.lookahead_off)[1]
     float dL_d = request.security(syminfo.tickerid, "D", low,   barmerge.gaps_off, barmerge.lookahead_off)[1]
@@ -502,13 +471,12 @@ if timeframe.isdaily and showHTF and showDaily
     if not has1DL
         mkLevel(dL_d, "1D Low",  true, dT_d, "1D")
 
-// Taken protocol (visual faint) + live timers
+//========================= Taken protocol + timers =========================
 int lvlCount = array.size(lvls)
 if lvlCount > 0
     for i = lvlCount - 1 to 0
         Lvl it = array.get(lvls, i)
         if it.used and not na(it.takenTs)
-            // Expiry by timer: 4H = 12h, 1D = 24h
             bool is4H = str.startswith(it.tag, "4H")
             bool is1D = str.startswith(it.tag, "1D")
             float ttlSec = is4H ? 43200.0 : is1D ? 86400.0 : 0.0
@@ -527,7 +495,6 @@ if lvlCount > 0
                     array.remove(lvls, i)
                     continue
 
-        // Faint on first cross
         bool crossed = (str.contains(it.tag,"High") and close > it.price) or (str.contains(it.tag,"Low") and close < it.price)
         if crossed and not it.used
             bool isBuySide = it.price > px1530
@@ -536,13 +503,12 @@ if lvlCount > 0
             label.set_color(it.lb, color.rgb(240, 240, 240))
             array.set(lvls, i, Lvl.new(ln=it.ln, lb=it.lb, price=it.price, tag=it.tag, dts=it.dts, persist=it.persist, used=true, takenTs=time))
 
-// Nightly cleanup @23:00
+//========================= Nightly cleanup @23:00 =========================
 if fStart("2300-2301")
     int c = array.size(lvls)
     if c > 0
         for i = c - 1 to 0
             Lvl it = array.get(lvls, i)
-            // Remove all non-persistent (intraday) objects, including LQ 4H/1D
             bool isIntraday = (not it.persist) or str.startswith(it.tag, "30m") or str.startswith(it.tag, "1H") or str.startswith(it.tag, "key")
             if isIntraday
                 safeDelLine(it.ln)
@@ -559,13 +525,11 @@ if fStart("2300-2301")
                     safeDelLine(it.ln)
                     safeDelLabel(it.lb)
                     array.remove(lvls, i)
-    // DS/CT overlays cleanup
     int bxN = array.size(gBoxes)
     if bxN > 0
         for k = bxN - 1 to 0
             safeDelBox(array.get(gBoxes, k))
         array.clear(gBoxes)
-    // Asia lines + flags reset
     safeDelLine(asiaHLn)
     safeDelLine(asiaLLn)
     asiaHLn := na
@@ -575,12 +539,10 @@ if fStart("2300-2301")
     asiaLTaken := false
     colStatus := color.new(color.red, 0)
 
-//========================= DS/CT model (5m source, 16:30–18:30) =========================
-// Direction filter
+//========================= DS/CT model (5m 16:30–18:30) =========================
 biasDir() =>
     biasTxt == "LONGS" ? 1 : biasTxt == "SHORTS" ? -1 : 0
 
-// Fetch 5m context
 o5  = request.security(syminfo.tickerid, "5", open,  barmerge.gaps_off, barmerge.lookahead_off)
 h5  = request.security(syminfo.tickerid, "5", high,  barmerge.gaps_off, barmerge.lookahead_off)
 l5  = request.security(syminfo.tickerid, "5", low,   barmerge.gaps_off, barmerge.lookahead_off)
@@ -588,7 +550,6 @@ c5  = request.security(syminfo.tickerid, "5", close, barmerge.gaps_off, barmerge
 t5  = request.security(syminfo.tickerid, "5", time,  barmerge.gaps_off, barmerge.lookahead_off)
 inWin5 = request.security(syminfo.tickerid, "5", not na(time("5", "1630-1830", TZ)), barmerge.gaps_off, barmerge.lookahead_off)
 
-// FVG detection (3-candle)
 timeBullFVG = request.security(syminfo.tickerid, "5", (low[1] > high[2] and not na(time("5","1630-1830",TZ))) ? time[1] : na, barmerge.gaps_off, barmerge.lookahead_off)
 bfvgTop     = request.security(syminfo.tickerid, "5", (low[1] > high[2]) ? low[1] : na, barmerge.gaps_off, barmerge.lookahead_off)
 bfvgBot     = request.security(syminfo.tickerid, "5", (low[1] > high[2]) ? high[2] : na, barmerge.gaps_off, barmerge.lookahead_off)
@@ -597,7 +558,6 @@ timeBearFVG = request.security(syminfo.tickerid, "5", (high[1] < low[2] and not 
 sfvgTop     = request.security(syminfo.tickerid, "5", (high[1] < low[2]) ? low[2] : na, barmerge.gaps_off, barmerge.lookahead_off)
 sfvgBot     = request.security(syminfo.tickerid, "5", (high[1] < low[2]) ? high[1] : na, barmerge.gaps_off, barmerge.lookahead_off)
 
-// Simple OB proxy: break of short-term structure with opposite candle as OB
 breakUp5  = request.security(syminfo.tickerid, "5", close > ta.highest(high[1], 6) and not na(time("5","1630-1830",TZ)), barmerge.gaps_off, barmerge.lookahead_off)
 breakDn5  = request.security(syminfo.tickerid, "5", close < ta.lowest(low[1], 6) and not na(time("5","1630-1830",TZ)), barmerge.gaps_off, barmerge.lookahead_off)
 timeBullOB = request.security(syminfo.tickerid, "5", breakUp5 and close[1] < open[1] ? time[1] : na, barmerge.gaps_off, barmerge.lookahead_off)
@@ -607,7 +567,6 @@ timeBearOB = request.security(syminfo.tickerid, "5", breakDn5 and close[1] > ope
 sOBTop     = request.security(syminfo.tickerid, "5", breakDn5 and close[1] > open[1] ? high[1] : na, barmerge.gaps_off, barmerge.lookahead_off)
 sOBBot     = request.security(syminfo.tickerid, "5", breakDn5 and close[1] > open[1] ? open[1] : na, barmerge.gaps_off, barmerge.lookahead_off)
 
-// Zone object
 type Zone
     box   bx
     line  mid
@@ -637,7 +596,6 @@ mkZone(_t, _top, _bot, _kind, _dir, _colBase) =>
     trackLabel(lb)
     Zone.new(bx=bx, mid=mid, topLn=tL, botLn=bL, tag=lb, kind=_kind, dir=_dir, top=zTop, bot=zBot, t0=_t, invalidated=false)
 
-// Create zones in-window (bias-agnostic)
 var int lastBFVG = na, lastSFVG = na, lastBOB = na, lastSOB = na
 baseCol(kind) =>
     kind == "OB" ? color.orange :
@@ -645,7 +603,6 @@ baseCol(kind) =>
      kind == "FVG" ? color.blue :
      color.green
 
-// FVG zones
 if not na(timeBullFVG) and (na(lastBFVG) or timeBullFVG != lastBFVG)
     array.push(zones, mkZone(timeBullFVG, bfvgTop, bfvgBot, "FVG", "up", baseCol("FVG")))
     lastBFVG := timeBullFVG
@@ -653,7 +610,6 @@ if not na(timeBearFVG) and (na(lastSFVG) or timeBearFVG != lastSFVG)
     array.push(zones, mkZone(timeBearFVG, sfvgTop, sfvgBot, "FVG", "down", baseCol("FVG")))
     lastSFVG := timeBearFVG
 
-// OB zones
 if not na(timeBullOB) and (na(lastBOB) or timeBullOB != lastBOB)
     array.push(zones, mkZone(timeBullOB, bOBTop, bOBBot, "OB", "up", baseCol("OB")))
     lastBOB := timeBullOB
@@ -661,7 +617,6 @@ if not na(timeBearOB) and (na(lastSOB) or timeBearOB != lastSOB)
     array.push(zones, mkZone(timeBearOB, sOBTop, sOBBot, "OB", "down", baseCol("OB")))
     lastSOB := timeBearOB
 
-// Simple BPR from overlapping opposite FVGs
 mkBPRfromOverlap() =>
     int n = array.size(zones)
     if n >= 2
@@ -677,7 +632,7 @@ mkBPRfromOverlap() =>
                     break
 mkBPRfromOverlap()
 
-//========================= Disrespect / Continuation logic =========================
+//========================= Disrespect / Continuation =========================
 var bool hasDS = false
 var bool hasCT = false
 var int  dsTime = na
@@ -744,18 +699,17 @@ if scenReady and inWin5
                     chosenIdx := i2
                     break
 
-// Status dot colors per workflow
+//========================= 1m follow-through =========================
 var bool oneMinTouched = false
 var bool oneMinConfirmed = false
 var float entryPx = na
 var int   entryTs = na
 
-// 1m follow-through after DS+CT
 o1 = request.security(syminfo.tickerid, "1", open,  barmerge.gaps_off, barmerge.lookahead_off)
 h1 = request.security(syminfo.tickerid, "1", high,  barmerge.gaps_off, barmerge.lookahead_off)
 l1 = request.security(syminfo.tickerid, "1", low,   barmerge.gaps_off, barmerge.lookahead_off)
 c1 = request.security(syminfo.tickerid, "1", close, barmerge.gaps_off, barmerge.lookahead_off)
-t1m = request.security(syminfo.tickerid, "1", time,  barmerge.gaps_off, barmerge.lookahead_off)
+t1m = request.security(syminfo.tickerid, "1", time, barmerge.gaps_off, barmerge.lookahead_off)
 
 if scenReady
     if hasDS and not hasCT
@@ -770,30 +724,30 @@ if scenReady
                 colStatus := color.orange
                 entryPx := (cz.top + cz.bot) * 0.5
                 entryTs := t1m
-            int dir = biasDir()
-            bool conf = (dir == 1 and c1 > cz.top) or (dir == -1 and c1 < cz.bot)
+            int dir2 = biasDir()
+            bool conf = (dir2 == 1 and c1 > cz.top) or (dir2 == -1 and c1 < cz.bot)
             if oneMinTouched and conf and not oneMinConfirmed
                 oneMinConfirmed := true
                 colStatus := color.lime
                 int x1t = entryTs
                 int x2t = entryTs + 60 * 60 * 1000
                 float dh = window_abs
-                if dir == 1
+                if dir2 == 1
                     box bProfit = box.new(x1t, entryPx + dh, x2t, entryPx, xloc=xloc.bar_time, extend=extend.none, bgcolor=color.new(color.blue, 80), border_color=color.new(color.blue, 0))
                     box bLoss   = box.new(x1t, entryPx, x2t, entryPx - dh, xloc=xloc.bar_time, extend=extend.none, bgcolor=color.new(color.gray, 80), border_color=color.new(color.gray, 0))
                     trackBox(bProfit), trackBox(bLoss)
-                if dir == -1
+                if dir2 == -1
                     box bProfit = box.new(x1t, entryPx, x2t, entryPx - dh, xloc=xloc.bar_time, extend=extend.none, bgcolor=color.new(color.blue, 80), border_color=color.new(color.blue, 0))
                     box bLoss   = box.new(x1t, entryPx + dh, x2t, entryPx, xloc=xloc.bar_time, extend=extend.none, bgcolor=color.new(color.gray, 80), border_color=color.new(color.gray, 0))
                     trackBox(bProfit), trackBox(bLoss)
 
-// Invalidation candle highlight (5m)
+//========================= Highlights =========================
 plotcandle(plotInvalidateUp ? o5 : na, plotInvalidateUp ? h5 : na, plotInvalidateUp ? l5 : na, plotInvalidateUp ? c5 : na,
      title="InvalidateUp", bordercolor=color.lime, wickcolor=color.lime, color=na)
 plotcandle(plotInvalidateDn ? o5 : na, plotInvalidateDn ? h5 : na, plotInvalidateDn ? l5 : na, plotInvalidateDn ? c5 : na,
      title="InvalidateDn", bordercolor=color.red, wickcolor=color.red, color=na)
 
-//========================= Scenario Tile (HUD, top-right) =========================
+//========================= HUD =========================
 var table tHUD = table.new(position.top_right, 4, 7)
 var bool hudInit = false
 
@@ -840,7 +794,6 @@ if barstate.isnew
             table.cell_set_bgcolor(tHUD, 0, 5, scenBg)
 
             string biasVal = biasTxt == "LONGS" ? "● LONGS" : biasTxt == "SHORTS" ? "● SHORTS" : biasTxt
-            color  biasCol = biasTxt == "LONGS" ? color.lime : biasTxt == "SHORTS" ? color.red : color.black
             table.cell_set_text(tHUD, 0, 6, "Bias: " + biasVal)
             table.cell_set_text_color(tHUD, 0, 6, color.black)
             table.cell_set_bgcolor(tHUD, 0, 6, scenBg)
