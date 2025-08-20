@@ -344,10 +344,12 @@ tfPrioByTag(_tag) =>
         => 0
 
 tfPrioByShort(_short) =>
-    _short == "1D"  ? 4 :
-    _short == "4H"  ? 3 :
-    _short == "1H"  ? 2 :
-    _short == "30m" ? 1 : 0
+    switch _short
+        "1D"  => 4
+        "4H"  => 3
+        "1H"  => 2
+        "30m" => 1
+        => 0
 
 isTFTag(_tag) =>
     str.startswith(_tag, "1D") or str.startswith(_tag, "4H") or str.startswith(_tag, "1H") or str.startswith(_tag, "30m")
