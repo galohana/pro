@@ -35,10 +35,11 @@ var float[] bottoms = array.new_float()
 MAX_BPR = 500
 
 reset_state() =>
-    for i = 0 to array.size(bprs) - 1
-        box.delete(array.get(bprs, i))
-        line.delete(array.get(mids, i))
-        label.delete(array.get(tags, i))
+    if array.size(bprs) > 0
+        for i = 0 to array.size(bprs) - 1
+            box.delete(array.get(bprs, i))
+            line.delete(array.get(mids, i))
+            label.delete(array.get(tags, i))
     array.clear(bprs)
     array.clear(mids)
     array.clear(tags)
