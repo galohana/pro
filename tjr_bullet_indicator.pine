@@ -1,8 +1,11 @@
 //@version=6
-indicator("BPR [TakingProphets]", overlay=true, max_bars_back=500, max_boxes_count=500, max_lines_count=500, max_labels_count=500)
+indicator("BPR [TakingProphets]", overlay=true, max_bars_back=500, max_boxes_count=500, max_lines_count=500, max_labels_count=50)
 
 show_mitigated = input.bool(true, "Show Mitigated BPR")
 sensitivity = input.int(2, "Sensitivity", minval=0, maxval=25)
+bpr_color = input.color(color.green, "BPR Fill Color")
+bpr_opacity = input.int(20, "BPR Fill Opacity (%)", minval=0, maxval=100)
+use_atr_filter = input.bool(false, "Use ATR filter for FVG size")
 
 TZ = "Asia/Jerusalem"
 winBPR = "1630-1830"
@@ -32,6 +35,12 @@ var label[] tags = array.new_label()
 var bool[] dirs = array.new_bool()
 var float[] tops = array.new_float()
 var float[] bottoms = array.new_float()
+var float topB = na
+var float botB = na
+var int   tB = na
+var float topS = na
+var float botS = na
+var int   tS = na
 MAX_BPR = 500
 
 reset_state() =>
@@ -46,76 +55,70 @@ reset_state() =>
     array.clear(dirs)
     array.clear(tops)
     array.clear(bottoms)
+    topB := na
+    botB := na
+    tB := na
+    topS := na
+    botS := na
+    tS := na
 
 if session_open or cleanup
     reset_state()
 
-atr = sec5(ta.atr(20))
+fill_transp = 100 - bpr_opacity
+bpr_fill = color.new(bpr_color, fill_transp)
+atr5 = sec5(ta.atr(20))
 sens_coeff = sensitivity * 0.08
 
-body_size = math.abs(o - c)
-base_cond = (sensitivity == 0 or body_size[1] > (body_size + body_size[2]) * 0.3)
-
-is_bar_bull = c > o
-type_cond = true
-
-new_fvg_bearish = base_cond and type_cond and l[2] > h and (l[2] - h) > atr * sens_coeff
-new_fvg_bullish = base_cond and type_cond and l > h[2] and (l - h[2]) > atr * sens_coeff
-new_fvg_bearish_w = in_session ? new_fvg_bearish : false
-new_fvg_bullish_w = in_session ? new_fvg_bullish : false
-bull_num_since = ta.barssince(new_fvg_bearish_w)
-bear_num_since = ta.barssince(new_fvg_bullish_w)
+conf5 = request.security(syminfo.tickerid, "5", barstate.isconfirmed, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
 
 bool new_bull_bpr = false
 bool new_bear_bpr = false
 bool bull_mitigated = false
 bool bear_mitigated = false
 
-if not na(bull_num_since) and t < t1830 and in_session
-    bull_bpr_cond_1 = new_fvg_bullish
-    bull_bpr_cond_2 = h[bull_num_since] + l[bull_num_since + 2] + h[2] + l > math.max(l[bull_num_since + 2], l) - math.min(h[bull_num_since], h[2])
-    if bull_bpr_cond_1 and bull_bpr_cond_2
-        new_bull_bpr := true
-        bull_combined_low = math.max(h[bull_num_since], h[2])
-        bull_combined_high = math.min(l[bull_num_since + 2], l)
-        if bull_combined_high > bull_combined_low
-            t_start = t[bull_num_since + 1]
-            t_end = t + min5
-            top = bull_combined_high
-            bottom = bull_combined_low
-            b = box.new(t_start, top, t_end, bottom, xloc=xloc.bar_time, extend=extend.right, border_color=color.green, bgcolor=color.new(color.green, 80))
-            mid = (top + bottom) / 2
-            ln = line.new(t_start, mid, t_end, mid, xloc=xloc.bar_time, extend=extend.right, color=color.black, width=1, style=line.style_dashed)
-            lb = label.new(x=t_start, y=top, text="BPR", xloc=xloc.bar_time, yloc=yloc.price, style=label.style_label_left, size=size.tiny, textcolor=color.black, color=color.new(color.white, 80), textalign=text.align_left)
-            array.push(bprs, b)
-            array.push(mids, ln)
-            array.push(tags, lb)
-            array.push(dirs, true)
-            array.push(tops, top)
-            array.push(bottoms, bottom)
+make_bpr(_t, _top, _bot, _dir) =>
+    t_end = _t + min5
+    b = box.new(_t, _top, t_end, _bot, xloc=xloc.bar_time, extend=extend.right, border_color=color.black, bgcolor=bpr_fill)
+    mid = (_top + _bot) / 2
+    ln = line.new(_t, mid, t_end, mid, xloc=xloc.bar_time, extend=extend.right, color=color.black, width=1, style=line.style_dashed)
+    padY = math.max((_top - _bot) * 0.02, syminfo.mintick * 2)
+    padT = 30 * 1000
+    lb = label.new(x=_t + padT, y=_top - padY, text="BPR", xloc=xloc.bar_time, yloc=yloc.price, style=label.style_label_left, size=size.tiny, textcolor=color.black, color=color.new(color.white, 80))
+    array.push(bprs, b)
+    array.push(mids, ln)
+    array.push(tags, lb)
+    array.push(dirs, _dir)
+    array.push(tops, _top)
+    array.push(bottoms, _bot)
 
-if not na(bear_num_since) and t < t1830 and in_session
-    bear_bpr_cond_1 = new_fvg_bearish
-    bear_bpr_cond_2 = h[bear_num_since] + l[bear_num_since + 2] + h[2] + l > math.max(l[bear_num_since + 2], l) - math.min(h[bear_num_since], h[2])
-    if bear_bpr_cond_1 and bear_bpr_cond_2
-        new_bear_bpr := true
-        bear_combined_low = math.max(h[bear_num_since + 2], h)
-        bear_combined_high = math.min(l[bear_num_since], l[2])
-        if bear_combined_high > bear_combined_low
-            t_start = t[bear_num_since + 1]
-            t_end = t + min5
-            top = bear_combined_high
-            bottom = bear_combined_low
-            b = box.new(t_start, top, t_end, bottom, xloc=xloc.bar_time, extend=extend.right, border_color=color.green, bgcolor=color.new(color.green, 80))
-            mid = (top + bottom) / 2
-            ln = line.new(t_start, mid, t_end, mid, xloc=xloc.bar_time, extend=extend.right, color=color.black, width=1, style=line.style_dashed)
-            lb = label.new(x=t_start, y=top, text="BPR", xloc=xloc.bar_time, yloc=yloc.price, style=label.style_label_left, size=size.tiny, textcolor=color.black, color=color.new(color.white, 80), textalign=text.align_left)
-            array.push(bprs, b)
-            array.push(mids, ln)
-            array.push(tags, lb)
-            array.push(dirs, false)
-            array.push(tops, top)
-            array.push(bottoms, bottom)
+bull_fvg = conf5 and in_session and l[1] > h[2]
+bear_fvg = conf5 and in_session and h[1] < l[2]
+if use_atr_filter
+    bull_fvg := bull_fvg and (l[1] - h[2]) >= atr5 * sens_coeff
+    bear_fvg := bear_fvg and (l[2] - h[1]) >= atr5 * sens_coeff
+
+if bull_fvg
+    topB := l[1]
+    botB := h[2]
+    tB := t
+    if not na(topS) and t < t1830
+        overTop = math.min(topB, topS)
+        overBot = math.max(botB, botS)
+        if overTop > overBot
+            new_bull_bpr := true
+            make_bpr(tB, overTop, overBot, true)
+
+if bear_fvg
+    topS := l[2]
+    botS := h[1]
+    tS := t
+    if not na(topB) and t < t1830
+        overTop = math.min(topB, topS)
+        overBot = math.max(botB, botS)
+        if overTop > overBot
+            new_bear_bpr := true
+            make_bpr(tS, overTop, overBot, false)
 
 if array.size(bprs) > MAX_BPR
     box.delete(array.shift(bprs))
@@ -154,8 +157,9 @@ if array.size(bprs) > 0
                 else
                     box.set_right(b, t)
                     line.set_x2(ln, t)
-                    box.set_bgcolor(b, color.new(color.green, 95))
-                    box.set_border_color(b, color.new(color.green, 95))
+                    box.set_bgcolor(b, color.new(bpr_color, 95))
+                    box.set_border_color(b, color.black)
+                    line.set_color(ln, color.new(color.black, 95))
         else
             if invalidate_high < top
                 box.set_right(b, t + min5)
@@ -175,8 +179,9 @@ if array.size(bprs) > 0
                 else
                     box.set_right(b, t)
                     line.set_x2(ln, t)
-                    box.set_bgcolor(b, color.new(color.green, 95))
-                    box.set_border_color(b, color.new(color.green, 95))
+                    box.set_bgcolor(b, color.new(bpr_color, 95))
+                    box.set_border_color(b, color.black)
+                    line.set_color(ln, color.new(color.black, 95))
 
 alertcondition(new_bull_bpr, "Bullish BPR Detected", "New Bullish BPR formed")
 alertcondition(new_bear_bpr, "Bearish BPR Detected", "New Bearish BPR formed")
