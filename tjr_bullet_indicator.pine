@@ -1,831 +1,155 @@
-//@version=6
-// Note: TradingView does not expose thicker candle borders; use plotcandle bordercolor to emulate “bold” outlines.
-indicator("TJR Bolt • Full (v1.4.4-ui-align+4H)", overlay=true, max_lines_count=500, max_boxes_count=200, max_labels_count=300)
+//@version=5
+indicator("BPR [TakingProphets]", overlay=true, max_bars_back=500, max_boxes_count=500)
 
-//========================= Object store =========================
-const int MAX_LINES  = 500
-const int MAX_LABELS = 300
-const int MAX_BOXES  = 180
+//-----------------------------------------------------------------------------{
+// Inputs
+//-----------------------------------------------------------------------------{
+// General Configuration
+show_mitigated = input.bool(true, "Show Mitigated BPR", group="General Configuration")
+label_size = input.string("Small", "Label Size", options=["Tiny", "Small", "Normal", "Large"], group="General Configuration")
+sensitivity = input.int(2, "Sensitivity", minval=0, maxval=25, group="General Configuration")
+show_labels = input.bool(true, "Show Labels", group="General Configuration")
 
-var line[]  gLines  = array.new_line()
-var label[] gLabels = array.new_label()
-var box[]   gBoxes  = array.new_box()
+// Midpoint Line
+show_midpoint = input.bool(true, "Show Midpoint Line", group="Midpoint Line")
+midpoint_color = input.color(color.white, "Midpoint Color", group="Midpoint Line")
+midpoint_style_str = input.string("Dashed", "Midpoint Style", options=["Solid", "Dashed", "Dotted"], group="Midpoint Line")
+midpoint_width = input.int(1, "Midpoint Width", minval=1, group="Midpoint Line")
 
-trackLine(id) =>
-    if not na(id)
-        array.push(gLines, id)
-        if array.size(gLines) > MAX_LINES
-            line.delete(array.shift(gLines))
+// Colors
+bearish_bpr_color = input.color(color.new(color.red, 70), "Bearish BPR Color", group="Colors")
+bullish_bpr_color = input.color(color.new(color.green, 70), "Bullish BPR Color", group="Colors")
 
-trackLabel(id) =>
-    if not na(id)
-        array.push(gLabels, id)
-        if array.size(gLabels) > MAX_LABELS
-            label.delete(array.shift(gLabels))
+// Calculate text size
+var text_size = switch label_size
+    "Tiny" => size.tiny
+    "Small" => size.small
+    "Large" => size.large
+    => size.normal
 
-trackBox(id) =>
-    if not na(id)
-        array.push(gBoxes, id)
-        if array.size(gBoxes) > MAX_BOXES
-            box.delete(array.shift(gBoxes))
+var line bull_midline = na
+var line bear_midline = na
 
-safeDelLine(ln) =>
-    if not na(ln)
-        int idx = array.indexof(gLines, ln)
-        if idx != -1
-            array.remove(gLines, idx)
-        line.delete(ln)
+var midpoint_style = switch midpoint_style_str
+    "Dashed" => line.style_dashed
+    "Dotted" => line.style_dotted
+    => line.style_solid
 
-safeDelLabel(lb) =>
-    if not na(lb)
-        int idx = array.indexof(gLabels, lb)
-        if idx != -1
-            array.remove(gLabels, idx)
-        label.delete(lb)
+var box box_bullish = na
+var box box_bearish = na
 
-safeDelBox(bx) =>
-    if not na(bx)
-        int idx = array.indexof(gBoxes, bx)
-        if idx != -1
-            array.remove(gBoxes, idx)
-        box.delete(bx)
+// FVG Detection with conditions
+atr = ta.atr(20)
+sens_coeff = sensitivity * 0.08
 
-type Zone
-    box   bx
-    line  mid
-    line  topLn
-    line  botLn
-    label tag
-    string kind
-    string dir
-    float  top
-    float  bot
-    int    t0
-    bool   invalidated
+body_size = math.abs(open - close)
+base_cond = (sensitivity == 0 or body_size[1] > (body_size + body_size[2]) * 0.3)
 
-var Zone[] zones = array.new<Zone>()
+is_bar_bull = close > open
+type_cond = true
 
-//========================= Inputs & Colors =========================
-string TZ         = input.string("Asia/Jerusalem", "Timezone (fixed)")
-string sessAsia   = input.session("0100-1000", "Asia (TLV)")
-string sessLondon = input.session("1000-1530", "London (TLV)")
-string sessNY     = input.session("1530-2300", "New York (TLV)")
+new_fvg_bearish = base_cond and type_cond and low[2] > high and (low[2] - high) > atr * sens_coeff
+new_fvg_bullish = base_cond and type_cond and low > high[2] and (low - high[2]) > atr * sens_coeff
 
-string winWatch1  = input.session("1630-1650", "No-Trade 16:30–16:50")
-string winPrime   = input.session("1650-1730", "Prime 16:50–17:30")
-string winNo2     = input.session("1730-1750", "No-Trade 17:30–17:50")
-string winExtra   = input.session("1750-1830", "Extra 17:50–18:30")
+// Bullish BPR
+bool new_bull_bpr = false
+bool bull_mitigated = false
+bull_num_since = ta.barssince(new_fvg_bearish)
+if not na(bull_num_since)
+    bull_bpr_cond_1 = new_fvg_bullish
+    bull_bpr_cond_2 = high[bull_num_since] + low[bull_num_since + 2] + high[2] + low > math.max(low[bull_num_since + 2], low) - math.min(high[bull_num_since], high[2])
+    
+    if bull_bpr_cond_1 and bull_bpr_cond_2
+        new_bull_bpr := true
+        bull_combined_low = math.max(high[bull_num_since], high[2])
+        bull_combined_high = math.min(low[bull_num_since + 2], low)
+        
+        if bull_combined_high > bull_combined_low
+            if not na(box_bullish)
+                box.delete(box_bullish)
+            box_bullish := box.new(bar_index - bull_num_since - 1, bull_combined_high, bar_index + 1, bull_combined_low, 
+                 border_color=bullish_bpr_color, border_width=1, bgcolor=bullish_bpr_color,
+                 text= show_labels ? "BPR" : "", text_size=text_size, text_color=color.white,
+                 text_halign=text.align_right, text_valign=text.align_bottom)
+            if show_midpoint
+                mid = (bull_combined_high + bull_combined_low) / 2
+                if not na(bull_midline)
+                    line.delete(bull_midline)
+                bull_midline := line.new(bar_index - bull_num_since - 1, mid, bar_index + 1, mid, color=midpoint_color, width=midpoint_width, style=midpoint_style)
 
-bool showHTF   = input.bool(true,  "Show HTF (1D/4H/1H/30m)")
-bool showDaily = input.bool(true,  "Persist Daily (≤ 1 week)")
-bool show4H    = input.bool(true,  "Persist 4H (≤ 1 week)")
-bool show1H    = input.bool(true,  "Show 1H (reset 23:00)")
-bool show30m   = input.bool(true,  "Show 30m (reset 23:00)")
+// Bearish BPR
+bool new_bear_bpr = false
+bool bear_mitigated = false
+bear_num_since = ta.barssince(new_fvg_bullish)
+if not na(bear_num_since)
+    bear_bpr_cond_1 = new_fvg_bearish
+    bear_bpr_cond_2 = high[bear_num_since] + low[bear_num_since + 2] + high[2] + low > math.max(low[bear_num_since + 2], low) - math.min(high[bear_num_since], high[2])
+    
+    if bear_bpr_cond_1 and bear_bpr_cond_2
+        new_bear_bpr := true
+        bear_combined_low = math.max(high[bear_num_since + 2], high)
+        bear_combined_high = math.min(low[bear_num_since], low[2])
+        
+        if bear_combined_high > bear_combined_low
+            if not na(box_bearish)
+                box.delete(box_bearish)
+            box_bearish := box.new(bar_index - bear_num_since - 1, bear_combined_high, bar_index + 1, bear_combined_low, 
+                 border_color=bearish_bpr_color, border_width=1, bgcolor=bearish_bpr_color,
+                 text= show_labels ? "BPR" : "", text_size=text_size, text_color=color.white,
+                 text_halign=text.align_right, text_valign=text.align_bottom)
+            if show_midpoint
+                mid = (bear_combined_high + bear_combined_low) / 2
+                if not na(bear_midline)
+                    line.delete(bear_midline)
+                bear_midline := line.new(bar_index - bear_num_since - 1, mid, bar_index + 1, mid, color=midpoint_color, width=midpoint_width, style=midpoint_style)
 
-float liq_window_points = input.float(200, "Liquidity window (points)")
-bool  use_ticks_per_point = input.bool(false, "Use ticks per point")
-float ticks_per_point = input.float(4, "Ticks per point")
-float point_size = input.float(1, "Point size")
+// Update existing boxes with invalidation
+invalidate_low = math.min(close, open)
+invalidate_high = math.max(close, open)
 
-int liq_swing_lookback = input.int(4, "LQ swing lookback (len_l)", minval=1)
-
-bool show_scenario_tile      = input.bool(true,  "Show Scenario Tile")
-bool scenario_tile_expanded  = input.bool(true,  "Scenario Tile: expanded (toggle)")
-
-color colVline = color.new(color.red, 0)
-color colAsiaH = color.new(color.lime, 0)
-color colAsiaL = color.new(color.red,  0)
-
-float window_abs = use_ticks_per_point ? liq_window_points * ticks_per_point * syminfo.mintick : liq_window_points * point_size
-
-//========================= Time helpers =========================
-fIn(s)    => not na(time(timeframe.period, s, TZ))
-fStart(s) => fIn(s) and not fIn(s)[1]
-fEnd(s)   => not fIn(s) and fIn(s)[1]
-
-//========================= Status Dot (default by time windows) =========================
-var color colStatus = na
-if barstate.isnew
-    colStatus := fIn(winPrime) ? color.new(color.lime, 0) :
-         (fIn(winWatch1) or fIn(winNo2)) ? color.new(color.orange, 0) :
-         fIn(winExtra) ? color.new(color.aqua, 0) :
-         color.new(color.red, 0)
-
-//========================= Session verticals (TODAY only) =========================
-var line[] vlines = array.new_line()
-newVLineAtTime(_ts) =>
-    ln = line.new(_ts, 1e10, _ts, -1e10, xloc=xloc.bar_time, extend=extend.none, color=colVline, style=line.style_dotted, width=2)
-    array.push(vlines, ln)
-    trackLine(ln)
-
-var int _dayKey = na
-var bool _builtToday = false
-
-buildTodayVlines(_t0100, _t1000, _t1530, _t1630, _t1650, _t1730) =>
-    int vCount = array.size(vlines)
-    if vCount > 0
-        for i = vCount - 1 to 0
-            safeDelLine(array.get(vlines, i))
-        array.clear(vlines)
-    newVLineAtTime(_t0100)
-    newVLineAtTime(_t1000)
-    newVLineAtTime(_t1530)
-    newVLineAtTime(_t1630)
-    newVLineAtTime(_t1650)
-    newVLineAtTime(_t1730)
-    true
-
-if barstate.isnew
-    int _today = time("D", TZ)
-    if na(_dayKey) or _today != _dayKey
-        int vSize = array.size(vlines)
-        if vSize > 0
-            for i = vSize - 1 to 0
-                safeDelLine(array.get(vlines, i))
-            array.clear(vlines)
-        _builtToday := false
-        _dayKey := _today
-
-int t0100 = timestamp(TZ, year, month, dayofmonth, 1, 0)
-int t1000 = timestamp(TZ, year, month, dayofmonth, 10, 0)
-int t1530 = timestamp(TZ, year, month, dayofmonth, 15, 30)
-int t1630 = timestamp(TZ, year, month, dayofmonth, 16, 30)
-int t1650 = timestamp(TZ, year, month, dayofmonth, 16, 50)
-int t1730 = timestamp(TZ, year, month, dayofmonth, 17, 30)
-
-if fStart(sessAsia)
-    _builtToday := buildTodayVlines(t0100, t1000, t1530, t1630, t1650, t1730)
-if not _builtToday and timenow >= t0100
-    _builtToday := buildTodayVlines(t0100, t1000, t1530, t1630, t1650, t1730)
-
-if fStart("2300-2301")
-    int vCount2 = array.size(vlines)
-    if vCount2 > 0
-        for i = vCount2 - 1 to 0
-            safeDelLine(array.get(vlines, i))
-        array.clear(vlines)
-    _builtToday := false
-
-//========================= Asia H/L =========================
-var float asiaH = na
-var float asiaL = na
-var int   asiaHTs = na
-var int   asiaLTs = na
-var line  asiaHLn = na
-var line  asiaLLn = na
-var bool  asiaLocked = false
-var bool  asiaHTaken = false
-var bool  asiaLTaken = false
-
-if fStart(sessAsia)
-    asiaH := high
-    asiaL := low
-    asiaHTs := time
-    asiaLTs := time
-    asiaLocked := false
-    asiaHTaken := false
-    asiaLTaken := false
-    safeDelLine(asiaHLn)
-    safeDelLine(asiaLLn)
-    asiaHLn := line.new(asiaHTs, asiaH, asiaHTs + 1, asiaH, xloc=xloc.bar_time, extend=extend.right, color=colAsiaH, width=2)
-    asiaLLn := line.new(asiaLTs, asiaL, asiaLTs + 1, asiaL, xloc=xloc.bar_time, extend=extend.right, color=colAsiaL, width=2)
-    trackLine(asiaHLn)
-    trackLine(asiaLLn)
-
-if fIn(sessAsia)
-    if na(asiaH) or high > asiaH
-        asiaH := high
-        asiaHTs := time
-        if not na(asiaHLn)
-            line.set_xy1(asiaHLn, asiaHTs,     asiaH)
-            line.set_xy2(asiaHLn, asiaHTs + 1, asiaH)
-    if na(asiaL) or low < asiaL
-        asiaL := low
-        asiaLTs := time
-        if not na(asiaLLn)
-            line.set_xy1(asiaLLn, asiaLTs,     asiaL)
-            line.set_xy2(asiaLLn, asiaLTs + 1, asiaL)
-
-if fEnd(sessAsia)
-    asiaLocked := true
-    asiaHTaken := false
-    asiaLTaken := false
-
-if asiaLocked
-    if not asiaHTaken and high >= asiaH and not na(asiaHLn)
-        line.set_style(asiaHLn, line.style_dotted)
-        asiaHTaken := true
-    if not asiaLTaken and low <= asiaL and not na(asiaLLn)
-        line.set_style(asiaLLn, line.style_dotted)
-        asiaLTaken := true
-
-//========================= London stats =========================
-var float ldnHigh = na
-var float ldnLow  = na
-var float ldnOpen = na
-var int   ldnHighIdx = na
-var int   ldnLowIdx  = na
-var bool  ldnHitHigh = false
-var bool  ldnHitLow  = false
-var bool  scenFrozen = false
-
-if fStart(sessLondon)
-    ldnOpen := open
-    ldnHigh := high
-    ldnLow  := low
-    ldnHighIdx := bar_index
-    ldnLowIdx  := bar_index
-    ldnHitHigh := false
-    ldnHitLow := false
-
-if fIn(sessLondon) and not scenFrozen
-    if high > nz(ldnHigh, high)
-        ldnHigh := high
-        ldnHighIdx := bar_index
-    if low < nz(ldnLow, low)
-        ldnLow := low
-        ldnLowIdx := bar_index
-    if not na(asiaH) and high >= asiaH
-        ldnHitHigh := true
-    if not na(asiaL) and low <= asiaL
-        ldnHitLow := true
-
-//========================= Scenario (freeze at 15:30) =========================
-var string scenCode  = "—"
-var string scenBody  = ""
-var string nyLine    = ""
-var string biasTxt   = "Neutral"
-var color  scenColor = color.gray
-var bool   scenReady = false
-if fStart(sessNY) and not scenFrozen
-    float upMove = math.max(nz(ldnHigh) - nz(ldnOpen), 0)
-    float dnMove = math.max(nz(ldnOpen) - nz(ldnLow),  0)
-    bool highFirst = not na(ldnHighIdx) and not na(ldnLowIdx) and ldnHighIdx < ldnLowIdx
-    string lastSide = ldnHitHigh ? "B" : ldnHitLow ? "S" : (highFirst ? "B" : "S")
-    float pctRetrace = upMove >= dnMove ? (upMove == 0 ? 0 : dnMove / upMove) : (dnMove == 0 ? 0 : upMove / dnMove)
-
-    scenCode := "3"
-    scenBody := "London = Accumulation"
-    nyLine   := "New York = Manip+Reversal"
-    biasTxt  := "Neutral"
-
-    if ldnHitHigh or ldnHitLow
-        scenCode := "1"
-        scenBody := "London = Manipulation"
-        nyLine   := "New York = Reversal"
-        biasTxt  := lastSide == "B" ? "SHORTS" : "LONGS"
-        if pctRetrace >= 0.35
-            scenCode := "2"
-            scenBody := "London = Manip+Reversal"
-            nyLine   := "New York = Continuation"
-            biasTxt  := lastSide == "B" ? "SHORTS" : "LONGS"
-
-    scenColor := scenCode == "1" ? color.purple : scenCode == "2" ? color.aqua : color.blue
-    scenReady := true
-    scenFrozen := true
-
-if fStart(sessAsia)
-    scenCode  := "—"
-    scenBody  := ""
-    nyLine    := ""
-    biasTxt   := "Neutral"
-    scenColor := color.gray
-    scenReady := false
-    scenFrozen := false
-
-//========================= HTF LIQUIDITY =========================
-type Lvl
-    line   ln
-    label  lb
-    float  price
-    string tag
-    int    dts
-    bool   persist
-    bool   used
-    int    takenTs
-
-var Lvl[] lvls = array.new<Lvl>()
-sec(tfStr, expr) => request.security(syminfo.tickerid, tfStr, expr, barmerge.gaps_off, barmerge.lookahead_off)
-
-// 15:30 anchor
-var float px1530 = na
-// *** CHANGED: wick-based taken check ***
-isTakenAt1530(_price, _isHigh) =>
-    _isHigh ? (high > _price) : (low < _price)
-
-withinWindow(_p) =>
-    na(px1530) or math.abs(_p - px1530) <= window_abs
-
-mkLevel(_price, _tag, _persist, _t, _labelText, _isKey=false) =>
-    if withinWindow(_price)
-        bool isBuySide = _price > px1530
-        color lnCol = isBuySide ? color.new(color.lime, 0) : color.new(color.red, 0)
-        float y = _price
-        float dy = syminfo.mintick * 3
-        float yLbl = isBuySide ? y + dy : y - dy
-        color pillBg = color.rgb(240, 240, 240)
-        line ln = line.new(_t, y, _t + 1, y, xloc=xloc.bar_time, extend=extend.right, color=lnCol, width=1)
-        label lb = label.new(_t, yLbl, _labelText, xloc=xloc.bar_time, textcolor=color.black, color=pillBg, size=_isKey ? size.small : size.tiny)
-        label.set_textalign(lb, text.align_center)
-        label.set_style(lb, label.style_label_left)
-        array.push(lvls, Lvl.new(ln=ln, lb=lb, price=y, tag=_tag, dts=time("D", TZ), persist=_persist, used=false, takenTs=na))
-        trackLine(ln)
-        trackLabel(lb)
-
-//=== Precedence helpers ===
-tfPrioByTag(_tag) =>
-    switch
-        str.startswith(_tag, "1D")  => 4
-        str.startswith(_tag, "4H")  => 3
-        str.startswith(_tag, "1H")  => 2
-        str.startswith(_tag, "30m") => 1
-        => 0
-
-tfPrioByShort(_short) =>
-    switch _short
-        "1D"  => 4
-        "4H"  => 3
-        "1H"  => 2
-        "30m" => 1
-        => 0
-
-isTFTag(_tag) =>
-    str.startswith(_tag, "1D") or str.startswith(_tag, "4H") or str.startswith(_tag, "1H") or str.startswith(_tag, "30m")
-
-shortFromTf(string _tf) =>
-    switch _tf
-        "D"    => "1D"
-        "240"  => "4H"
-        "60"   => "1H"
-        "30"   => "30m"
-        => _tf
-
-// *** CHANGED: eps = 3 * mintick ***
-tryInsertLQ(_short, _isHigh, _price, _t) =>
-    if not withinWindow(_price)
-        false
-    else
-        if isTakenAt1530(_price, _isHigh)
-            false
+if not na(box_bullish)
+    if invalidate_low > box.get_bottom(box_bullish)
+        box.set_right(box_bullish, bar_index + 1)
+        if show_midpoint and not na(bull_midline)
+            line.set_x2(bull_midline, bar_index + 1)
+    else if invalidate_low < box.get_bottom(box_bullish)
+        bull_mitigated := true
+        if not show_mitigated
+            box.delete(box_bullish)
+            box_bullish := na
+            if show_midpoint and not na(bull_midline)
+                line.delete(bull_midline)
+                bull_midline := na
         else
-            string _tag = _short + " " + (_isHigh ? "High" : "Low")
-            string _lbTxt = _short + " · LQ"
-            int newPrio = tfPrioByShort(_short)
-            float eps = syminfo.mintick * 3.0
-            int n = array.size(lvls)
-            int bestIdx = na
-            int bestPr  = -1
-            for i = 0 to n - 1
-                Lvl it = array.get(lvls, i)
-                if isTFTag(it.tag) and math.abs(it.price - _price) <= eps
-                    int pr = tfPrioByTag(it.tag)
-                    if pr > bestPr
-                        bestPr := pr
-                        bestIdx := i
-            if not na(bestIdx)
-                Lvl ex = array.get(lvls, bestIdx)
-                int exPr = tfPrioByTag(ex.tag)
-                bool shouldReplace = (newPrio > exPr) or (newPrio == exPr and ex.persist and not na(ex.ln))
-                if shouldReplace
-                    for j = n - 1 to 0
-                        Lvl it2 = array.get(lvls, j)
-                        if isTFTag(it2.tag) and math.abs(it2.price - _price) <= eps and tfPrioByTag(it2.tag) <= exPr
-                            safeDelLine(it2.ln), safeDelLabel(it2.lb)
-                            array.remove(lvls, j)
-                    mkLevel(_price, _tag, false, _t, _lbTxt)
-                    true
-                else
-                    false
-            else
-                mkLevel(_price, _tag, false, _t, _lbTxt)
-                true
+            box.set_right(box_bullish, bar_index)  // Stop at mitigating candle
+            box.set_bgcolor(box_bullish, color.new(bullish_bpr_color, 95))
+            box.set_border_color(box_bullish, color.new(bullish_bpr_color, 95))
+            if show_midpoint and not na(bull_midline)
+                line.set_x2(bull_midline, bar_index)
 
-collectLiquidityForTF(_tf, _len) =>
-    string s = shortFromTf(_tf)
-    int N = 20
-    bool  hPiv = request.security(syminfo.tickerid, _tf, not na(ta.pivothigh(high, _len, _len)), barmerge.gaps_off, barmerge.lookahead_off)
-    float hSrc = request.security(syminfo.tickerid, _tf, ta.highest(high, _len * 2 + 1)[_len],            barmerge.gaps_off, barmerge.lookahead_off)
-    bool  lPiv = request.security(syminfo.tickerid, _tf, not na(ta.pivotlow(low,  _len, _len)), barmerge.gaps_off, barmerge.lookahead_off)
-    float lSrc = request.security(syminfo.tickerid, _tf, ta.lowest(low,  _len * 2 + 1)[_len],             barmerge.gaps_off, barmerge.lookahead_off)
-    int   pTim = request.security(syminfo.tickerid, _tf, time[_len],                                       barmerge.gaps_off, barmerge.lookahead_off)
-
-    float[] hExtArr = array.new_float(N)
-    int[]   hTimArr = array.new_int(N)
-    float[] lExtArr = array.new_float(N)
-    int[]   lTimArr = array.new_int(N)
-
-    for i = 0 to N - 1
-        array.set(hExtArr, i, ta.valuewhen(hPiv, hSrc, i))
-        array.set(hTimArr, i, ta.valuewhen(hPiv, pTim, i))
-        array.set(lExtArr, i, ta.valuewhen(lPiv, lSrc, i))
-        array.set(lTimArr, i, ta.valuewhen(lPiv, pTim, i))
-
-    bool foundH = false
-    bool foundL = false
-    for k = 0 to N - 1
-        float hExt = array.get(hExtArr, k)
-        int   hTim = array.get(hTimArr, k)
-        float lExt = array.get(lExtArr, k)
-        int   lTim = array.get(lTimArr, k)
-        if not foundH
-            if na(hExt)
-                foundH := true
-            else if withinWindow(hExt)
-                foundH := tryInsertLQ(s, true, hExt, hTim)
-        if not foundL
-            if na(lExt)
-                foundL := true
-            else if withinWindow(lExt)
-                foundL := tryInsertLQ(s, false, lExt, lTim)
-        if foundH and foundL
-            break
-
-//========================= 15:30: build levels =========================
-if fStart(sessNY)
-    px1530 := close
-
-    int lvlSize = array.size(lvls)
-    if lvlSize > 0
-        for i = lvlSize - 1 to 0
-            Lvl it = array.get(lvls, i)
-            bool isIntraday = str.startswith(it.tag, "30m") or str.startswith(it.tag, "1H") or str.startswith(it.tag, "key")
-            if isIntraday
-                safeDelLine(it.ln)
-                safeDelLabel(it.lb)
-                array.remove(lvls, i)
-
-    float dH = request.security(syminfo.tickerid, "D", high,  barmerge.gaps_off, barmerge.lookahead_off)[1]
-    float dL = request.security(syminfo.tickerid, "D", low,   barmerge.gaps_off, barmerge.lookahead_off)[1]
-    int   dT = request.security(syminfo.tickerid, "D", time,  barmerge.gaps_off, barmerge.lookahead_off)[1]
-
-    // *** CHANGED: honor toggles ***
-    if show30m
-        collectLiquidityForTF("30",  liq_swing_lookback)
-    if show1H
-        collectLiquidityForTF("60",  liq_swing_lookback)
-    if show4H
-        collectLiquidityForTF("240", liq_swing_lookback)
-    if showDaily
-        collectLiquidityForTF("D",   liq_swing_lookback)
-
-    if not na(asiaH) and not asiaHTaken and withinWindow(asiaH) and not isTakenAt1530(asiaH, true)
-        mkLevel(asiaH, "key Asia High", false, asiaHTs, "key level", true)
-    if not na(asiaL) and not asiaLTaken and withinWindow(asiaL) and not isTakenAt1530(asiaL, false)
-        mkLevel(asiaL, "key Asia Low",  false, asiaLTs, "key level", true)
-    if withinWindow(dH) and not isTakenAt1530(dH, true)
-        mkLevel(dH, "key Daily High", false, dT, "key level", true)
-    if withinWindow(dL) and not isTakenAt1530(dL, false)
-        mkLevel(dL, "key Daily Low",  false, dT, "key level", true)
-
-//========================= Daily TF support =========================
-if timeframe.isdaily and showHTF and showDaily
-    float dH_d = request.security(syminfo.tickerid, "D", high,  barmerge.gaps_off, barmerge.lookahead_off)[1]
-    float dL_d = request.security(syminfo.tickerid, "D", low,   barmerge.gaps_off, barmerge.lookahead_off)[1]
-    int   dT_d = request.security(syminfo.tickerid, "D", time,  barmerge.gaps_off, barmerge.lookahead_off)[1]
-    bool has1DH = false, has1DL = false
-    int lvCountD = array.size(lvls)
-    for i = 0 to lvCountD - 1
-        Lvl it = array.get(lvls, i)
-        if it.tag == "1D High"
-            has1DH := true
-        if it.tag == "1D Low"
-            has1DL := true
-    if not has1DH
-        mkLevel(dH_d, "1D High", true, dT_d, "1D")
-    if not has1DL
-        mkLevel(dL_d, "1D Low",  true, dT_d, "1D")
-
-//========================= Taken protocol + timers =========================
-int lvlCount = array.size(lvls)
-if lvlCount > 0
-    for i = lvlCount - 1 to 0
-        Lvl it = array.get(lvls, i)
-        if it.used and not na(it.takenTs)
-            bool is4H = str.startswith(it.tag, "4H")
-            bool is1D = str.startswith(it.tag, "1D")
-            float ttlSec = is4H ? 43200.0 : is1D ? 86400.0 : 0.0
-            if ttlSec > 0
-                float secsLeft = math.max(0, ttlSec - float(timenow - it.takenTs) / 1000.0)
-                int   hh = int(secsLeft) / 3600
-                int   mm = (int(secsLeft) % 3600) / 60
-                string timerTxt = (is4H ? "4H · " : "1D · ") + str.tostring(hh, "00") + ":" + str.tostring(mm, "00")
-                label.set_text(it.lb, timerTxt)
-                label.set_textcolor(it.lb, color.black)
-                label.set_color(it.lb, color.rgb(240, 240, 240))
-                bool expired = secsLeft <= 0.0
-                if expired
-                    safeDelLine(it.ln)
-                    safeDelLabel(it.lb)
-                    array.remove(lvls, i)
-                    continue
-
-        bool crossed = (str.contains(it.tag,"High") and close > it.price) or (str.contains(it.tag,"Low") and close < it.price)
-        if crossed and not it.used
-            bool isBuySide = it.price > px1530
-            color lnCol2 = isBuySide ? color.lime : color.red
-            line.set_color(it.ln, color.new(lnCol2, 70))
-            label.set_color(it.lb, color.rgb(240, 240, 240))
-            array.set(lvls, i, Lvl.new(ln=it.ln, lb=it.lb, price=it.price, tag=it.tag, dts=it.dts, persist=it.persist, used=true, takenTs=time))
-
-//========================= Nightly cleanup @23:00 =========================
-if fStart("2300-2301")
-    int c = array.size(lvls)
-    if c > 0
-        for i = c - 1 to 0
-            Lvl it = array.get(lvls, i)
-            bool isIntraday = (not it.persist) or str.startswith(it.tag, "30m") or str.startswith(it.tag, "1H") or str.startswith(it.tag, "key")
-            if isIntraday
-                safeDelLine(it.ln)
-                safeDelLabel(it.lb)
-                array.remove(lvls, i)
-            else
-                int ageDays = int((time("D", TZ) - it.dts) / 86400000)
-                bool tooOld = ageDays > 7
-                bool is4H = str.startswith(it.tag, "4H")
-                bool is1D = str.startswith(it.tag, "1D")
-                float ttlMs = is4H ? 43200000.0 : is1D ? 86400000.0 : 0.0
-                bool takenExpire = it.used and not na(it.takenTs) and (timenow - it.takenTs) >= ttlMs
-                if tooOld or takenExpire
-                    safeDelLine(it.ln)
-                    safeDelLabel(it.lb)
-                    array.remove(lvls, i)
-    int bxN = array.size(gBoxes)
-    if bxN > 0
-        for k = bxN - 1 to 0
-            safeDelBox(array.get(gBoxes, k))
-        array.clear(gBoxes)
-    int zN = array.size(zones)
-    if zN > 0
-        for zi = zN - 1 to 0
-            Zone z = array.get(zones, zi)
-            safeDelBox(z.bx)
-            safeDelLine(z.mid)
-            safeDelLine(z.topLn)
-            safeDelLine(z.botLn)
-            safeDelLabel(z.tag)
-        array.clear(zones)
-    hasDS := false
-    hasCT := false
-    dsTime := na
-    ctTime := na
-    chosenIdx := na
-    oneMinTouched := false
-    oneMinConfirmed := false
-    entryPx := na
-    entryTs := na
-    safeDelLine(asiaHLn)
-    safeDelLine(asiaLLn)
-    asiaHLn := na
-    asiaLLn := na
-    asiaLocked := false
-    asiaHTaken := false
-    asiaLTaken := false
-    colStatus := color.new(color.red, 0)
-
-//========================= DS/CT model (5m 16:30–18:30) =========================
-biasDir() =>
-    biasTxt == "LONGS" ? 1 : biasTxt == "SHORTS" ? -1 : 0
-
-o5  = request.security(syminfo.tickerid, "5", open,  barmerge.gaps_off, barmerge.lookahead_off)
-h5  = request.security(syminfo.tickerid, "5", high,  barmerge.gaps_off, barmerge.lookahead_off)
-l5  = request.security(syminfo.tickerid, "5", low,   barmerge.gaps_off, barmerge.lookahead_off)
-c5  = request.security(syminfo.tickerid, "5", close, barmerge.gaps_off, barmerge.lookahead_off)
-t5  = request.security(syminfo.tickerid, "5", time,  barmerge.gaps_off, barmerge.lookahead_off)
-inWin5 = request.security(syminfo.tickerid, "5", not na(time("5", "1630-1830", TZ)), barmerge.gaps_off, barmerge.lookahead_off)
-
-timeBullFVG = request.security(syminfo.tickerid, "5", (low[1] > high[2] and not na(time("5","1630-1830",TZ))) ? time[1] : na, barmerge.gaps_off, barmerge.lookahead_off)
-bfvgTop     = request.security(syminfo.tickerid, "5", (low[1] > high[2]) ? low[1] : na, barmerge.gaps_off, barmerge.lookahead_off)
-bfvgBot     = request.security(syminfo.tickerid, "5", (low[1] > high[2]) ? high[2] : na, barmerge.gaps_off, barmerge.lookahead_off)
-
-timeBearFVG = request.security(syminfo.tickerid, "5", (high[1] < low[2] and not na(time("5","1630-1830",TZ))) ? time[1] : na, barmerge.gaps_off, barmerge.lookahead_off)
-sfvgTop     = request.security(syminfo.tickerid, "5", (high[1] < low[2]) ? low[2] : na, barmerge.gaps_off, barmerge.lookahead_off)
-sfvgBot     = request.security(syminfo.tickerid, "5", (high[1] < low[2]) ? high[1] : na, barmerge.gaps_off, barmerge.lookahead_off)
-
-breakUp5  = request.security(syminfo.tickerid, "5", close > ta.highest(high[1], 6) and not na(time("5","1630-1830",TZ)), barmerge.gaps_off, barmerge.lookahead_off)
-breakDn5  = request.security(syminfo.tickerid, "5", close < ta.lowest(low[1], 6) and not na(time("5","1630-1830",TZ)), barmerge.gaps_off, barmerge.lookahead_off)
-timeBullOB = request.security(syminfo.tickerid, "5", breakUp5 and close[1] < open[1] ? time[1] : na, barmerge.gaps_off, barmerge.lookahead_off)
-bOBTop     = request.security(syminfo.tickerid, "5", breakUp5 and close[1] < open[1] ? open[1] : na, barmerge.gaps_off, barmerge.lookahead_off)
-bOBBot     = request.security(syminfo.tickerid, "5", breakUp5 and close[1] < open[1] ? low[1]  : na, barmerge.gaps_off, barmerge.lookahead_off)
-timeBearOB = request.security(syminfo.tickerid, "5", breakDn5 and close[1] > open[1] ? time[1] : na, barmerge.gaps_off, barmerge.lookahead_off)
-sOBTop     = request.security(syminfo.tickerid, "5", breakDn5 and close[1] > open[1] ? high[1] : na, barmerge.gaps_off, barmerge.lookahead_off)
-sOBBot     = request.security(syminfo.tickerid, "5", breakDn5 and close[1] > open[1] ? open[1] : na, barmerge.gaps_off, barmerge.lookahead_off)
-
-mkZone(_t, _top, _bot, _kind, _dir, _colBase) =>
-    float zTop = math.max(_top, _bot)
-    float zBot = math.min(_top, _bot)
-    box bx = box.new(_t, zTop, _t + 1, zBot, xloc=xloc.bar_time, extend=extend.right, border_color=_colBase, bgcolor=color.new(_colBase, 80))
-    trackBox(bx)
-    float midY = (zTop + zBot) * 0.5
-    line mid = line.new(_t, midY, _t + 1, midY, xloc=xloc.bar_time, extend=extend.right, color=color.purple, style=line.style_dashed, width=2)
-    trackLine(mid)
-    line tL = line.new(_t, zTop, _t + 1, zTop, xloc=xloc.bar_time, extend=extend.right, color=color.black, width=1)
-    line bL = line.new(_t, zBot, _t + 1, zBot, xloc=xloc.bar_time, extend=extend.right, color=color.black, width=1)
-    trackLine(tL), trackLine(bL)
-    label lb = label.new(_t + 1, zTop, _kind, xloc=xloc.bar_time, textcolor=color.black, color=color.new(color.white, 100), style=label.style_label_right, size=size.tiny)
-    trackLabel(lb)
-    Zone.new(bx=bx, mid=mid, topLn=tL, botLn=bL, tag=lb, kind=_kind, dir=_dir, top=zTop, bot=zBot, t0=_t, invalidated=false)
-
-var int lastBFVG = na
-var int lastSFVG = na
-var int lastBOB = na
-var int lastSOB = na
-baseCol(kind) =>
-    kind == "OB" ? color.orange :
-     kind == "BB" ? color.purple :
-     kind == "FVG" ? color.blue :
-     color.green
-
-if not na(timeBullFVG) and (na(lastBFVG) or timeBullFVG != lastBFVG)
-    array.push(zones, mkZone(timeBullFVG, bfvgTop, bfvgBot, "FVG", "up", baseCol("FVG")))
-    lastBFVG := timeBullFVG
-if not na(timeBearFVG) and (na(lastSFVG) or timeBearFVG != lastSFVG)
-    array.push(zones, mkZone(timeBearFVG, sfvgTop, sfvgBot, "FVG", "down", baseCol("FVG")))
-    lastSFVG := timeBearFVG
-
-if not na(timeBullOB) and (na(lastBOB) or timeBullOB != lastBOB)
-    array.push(zones, mkZone(timeBullOB, bOBTop, bOBBot, "OB", "up", baseCol("OB")))
-    lastBOB := timeBullOB
-if not na(timeBearOB) and (na(lastSOB) or timeBearOB != lastSOB)
-    array.push(zones, mkZone(timeBearOB, sOBTop, sOBBot, "OB", "down", baseCol("OB")))
-    lastSOB := timeBearOB
-
-mkBPRfromOverlap() =>
-    int n = array.size(zones)
-    if n >= 2
-        Zone za = array.get(zones, n-1)
-        for j = n - 2 to 0
-            Zone zb = array.get(zones, j)
-            bool opp = za.dir != zb.dir and za.kind == "FVG" and zb.kind == "FVG"
-            if opp
-                float topO = math.min(za.top, zb.top)
-                float botO = math.max(za.bot, zb.bot)
-                if topO > botO
-                    array.push(zones, mkZone(za.t0, topO, botO, "BPR", za.dir, baseCol("BPR")))
-                    break
-mkBPRfromOverlap()
-
-//========================= Disrespect / Continuation =========================
-var bool hasDS = false
-var bool hasCT = false
-var int  dsTime = na
-var int  ctTime = na
-var int  chosenIdx = na
-
-invalidateZone(zIdx, upBreak) =>
-    Zone z = array.get(zones, zIdx)
-    if not z.invalidated
-        if upBreak and c5 > z.top
-            z.invalidated := true
-            array.set(zones, zIdx, z)
-            true
-        else if (not upBreak) and c5 < z.bot
-            z.invalidated := true
-            array.set(zones, zIdx, z)
-            true
+if not na(box_bearish)
+    if invalidate_high < box.get_top(box_bearish)
+        box.set_right(box_bearish, bar_index + 1)
+        if show_midpoint and not na(bear_midline)
+            line.set_x2(bear_midline, bar_index + 1)
+    else if invalidate_high > box.get_top(box_bearish)
+        bear_mitigated := true
+        if not show_mitigated
+            box.delete(box_bearish)
+            box_bearish := na
+            if show_midpoint and not na(bear_midline)
+                line.delete(bear_midline)
+                bear_midline := na
         else
-            false
-    else
-        false
+            box.set_right(box_bearish, bar_index)  // Stop at mitigating candle
+            box.set_bgcolor(box_bearish, color.new(bearish_bpr_color, 95))
+            box.set_border_color(box_bearish, color.new(bearish_bpr_color, 95))
+            if show_midpoint and not na(bear_midline)
+                line.set_x2(bear_midline, bar_index)
 
-plotInvalidateUp = false
-plotInvalidateDn = false
-
-if scenReady and inWin5
-    int dir = biasDir()
-    if dir == 1
-        if not hasDS
-            int n = array.size(zones)
-            for i = 0 to n - 1
-                Zone z = array.get(zones, i)
-                if z.dir == "down" and invalidateZone(i, true)
-                    hasDS := true
-                    dsTime := t5
-                    plotInvalidateUp := true
-                    break
-        if hasDS and not hasCT
-            int n2 = array.size(zones)
-            for i2 = n2 - 1 to 0
-                Zone z2 = array.get(zones, i2)
-                if z2.dir == "up" and z2.t0 > nz(dsTime, 0)
-                    hasCT := true
-                    ctTime := t5
-                    chosenIdx := i2
-                    break
-    if dir == -1
-        if not hasDS
-            int n = array.size(zones)
-            for i = 0 to n - 1
-                Zone z = array.get(zones, i)
-                if z.dir == "up" and invalidateZone(i, false)
-                    hasDS := true
-                    dsTime := t5
-                    plotInvalidateDn := true
-                    break
-        if hasDS and not hasCT
-            int n2 = array.size(zones)
-            for i2 = n2 - 1 to 0
-                Zone z2 = array.get(zones, i2)
-                if z2.dir == "down" and z2.t0 > nz(dsTime, 0)
-                    hasCT := true
-                    ctTime := t5
-                    chosenIdx := i2
-                    break
-
-//========================= 1m follow-through =========================
-var bool oneMinTouched = false
-var bool oneMinConfirmed = false
-var float entryPx = na
-var int   entryTs = na
-
-o1 = request.security(syminfo.tickerid, "1", open,  barmerge.gaps_off, barmerge.lookahead_off)
-h1 = request.security(syminfo.tickerid, "1", high,  barmerge.gaps_off, barmerge.lookahead_off)
-l1 = request.security(syminfo.tickerid, "1", low,   barmerge.gaps_off, barmerge.lookahead_off)
-c1 = request.security(syminfo.tickerid, "1", close, barmerge.gaps_off, barmerge.lookahead_off)
-t1m = request.security(syminfo.tickerid, "1", time, barmerge.gaps_off, barmerge.lookahead_off)
-
-if scenReady
-    if hasDS and not hasCT
-        colStatus := color.aqua
-    if hasDS and hasCT
-        colStatus := color.purple
-        if not na(chosenIdx) and chosenIdx >= 0 and chosenIdx < array.size(zones)
-            Zone cz = array.get(zones, chosenIdx)
-            bool touch = (l1 <= cz.top and h1 >= cz.bot)
-            if touch and not oneMinTouched
-                oneMinTouched := true
-                colStatus := color.orange
-                entryPx := (cz.top + cz.bot) * 0.5
-                entryTs := t1m
-            int dir2 = biasDir()
-            bool conf = (dir2 == 1 and c1 > cz.top) or (dir2 == -1 and c1 < cz.bot)
-            if oneMinTouched and conf and not oneMinConfirmed
-                oneMinConfirmed := true
-                colStatus := color.lime
-                int x1t = entryTs
-                int x2t = entryTs + 60 * 60 * 1000
-                float dh = window_abs
-                if dir2 == 1
-                    box bProfit = box.new(x1t, entryPx + dh, x2t, entryPx, xloc=xloc.bar_time, extend=extend.none, bgcolor=color.new(color.blue, 80), border_color=color.new(color.blue, 0))
-                    box bLoss   = box.new(x1t, entryPx, x2t, entryPx - dh, xloc=xloc.bar_time, extend=extend.none, bgcolor=color.new(color.gray, 80), border_color=color.new(color.gray, 0))
-                    trackBox(bProfit), trackBox(bLoss)
-                if dir2 == -1
-                    box bProfit = box.new(x1t, entryPx, x2t, entryPx - dh, xloc=xloc.bar_time, extend=extend.none, bgcolor=color.new(color.blue, 80), border_color=color.new(color.blue, 0))
-                    box bLoss   = box.new(x1t, entryPx + dh, x2t, entryPx, xloc=xloc.bar_time, extend=extend.none, bgcolor=color.new(color.gray, 80), border_color=color.new(color.gray, 0))
-                    trackBox(bProfit), trackBox(bLoss)
-
-//========================= Highlights =========================
-plotcandle(plotInvalidateUp ? o5 : na, plotInvalidateUp ? h5 : na, plotInvalidateUp ? l5 : na, plotInvalidateUp ? c5 : na,
-     title="InvalidateUp", bordercolor=color.lime, wickcolor=color.lime, color=na)
-plotcandle(plotInvalidateDn ? o5 : na, plotInvalidateDn ? h5 : na, plotInvalidateDn ? l5 : na, plotInvalidateDn ? c5 : na,
-     title="InvalidateDn", bordercolor=color.red, wickcolor=color.red, color=na)
-
-//========================= HUD =========================
-var table tHUD = table.new(position.top_right, 4, 7)
-var bool hudInit = false
-
-string ARROW_CLOSED = "⮜"
-string ARROW_OPEN   = "⮟"
-
-if barstate.isnew
-    if not hudInit
-        table.cell(tHUD, 1, 0, scenario_tile_expanded ? ARROW_OPEN : ARROW_CLOSED, text_color=color.black, text_halign=text.align_center, text_valign=text.align_center, text_size=size.normal, bgcolor=na)
-        table.cell(tHUD, 2, 0, "⬤", text_color=colStatus, text_halign=text.align_center, text_valign=text.align_center, text_size=size.huge)
-        for r = 1 to 6
-            table.cell(tHUD, 0, r, "", text_color=color.black, text_halign=text.align_center, text_valign=text.align_center, text_size=size.small, bgcolor=na)
-        hudInit := true
-    else
-        table.cell_set_text(tHUD, 1, 0, scenario_tile_expanded ? ARROW_OPEN : ARROW_CLOSED)
-        table.cell_set_bgcolor(tHUD, 1, 0, na)
-        table.cell_set_text(tHUD, 2, 0, "⬤")
-        table.cell_set_text_color(tHUD, 2, 0, colStatus)
-
-        for r = 1 to 6
-            table.cell_set_text(tHUD, 0, r, "")
-            table.cell_set_bgcolor(tHUD, 0, r, na)
-
-        if show_scenario_tile and scenario_tile_expanded and scenReady
-            color scenBg = color.rgb(240, 240, 240)
-            table.cell_set_text(tHUD, 0, 1, "SCENARIO " + scenCode)
-            table.cell_set_text_color(tHUD, 0, 1, scenColor)
-            table.cell_set_bgcolor(tHUD, 0, 1, scenBg)
-
-            table.cell_set_text(tHUD, 0, 2, "──────────")
-            table.cell_set_text_color(tHUD, 0, 2, scenColor)
-            table.cell_set_bgcolor(tHUD, 0, 2, scenBg)
-
-            table.cell_set_text(tHUD, 0, 3, scenBody)
-            table.cell_set_text_color(tHUD, 0, 3, color.black)
-            table.cell_set_bgcolor(tHUD, 0, 3, scenBg)
-
-            table.cell_set_text(tHUD, 0, 4, nyLine)
-            table.cell_set_text_color(tHUD, 0, 4, color.black)
-            table.cell_set_bgcolor(tHUD, 0, 4, scenBg)
-
-            table.cell_set_text(tHUD, 0, 5, "──────────")
-            table.cell_set_text_color(tHUD, 0, 5, scenColor)
-            table.cell_set_bgcolor(tHUD, 0, 5, scenBg)
-
-            string biasVal = biasTxt == "LONGS" ? "● LONGS" : biasTxt == "SHORTS" ? "● SHORTS" : biasTxt
-            table.cell_set_text(tHUD, 0, 6, "Bias: " + biasVal)
-            table.cell_set_text_color(tHUD, 0, 6, color.black)
-            table.cell_set_bgcolor(tHUD, 0, 6, scenBg)
+// Alerts
+alertcondition(new_bull_bpr, "Bullish BPR Detected", "New Bullish BPR formed")
+alertcondition(new_bear_bpr, "Bearish BPR Detected", "New Bearish BPR formed")
+alertcondition(bull_mitigated, "Bullish BPR Mitigated", "Bullish BPR has been mitigated")
+alertcondition(bear_mitigated, "Bearish BPR Mitigated", "Bearish BPR has been mitigated")
+//-----------------------------------------------------------------------------} 
