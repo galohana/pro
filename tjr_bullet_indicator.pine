@@ -1,63 +1,100 @@
 //@version=6
-indicator("BPR [TakingProphets]", overlay=true, max_bars_back=500, max_boxes_count=500, max_lines_count=500, max_labels_count=50)
+indicator("BPR [TakingProphets]", overlay=true, max_bars_back=500, max_boxes_count=500, max_lines_count=500, max_labels_count=500)
 
-show_mitigated = input.bool(true, "Show Mitigated BPR")
-sensitivity = input.int(2, "Sensitivity", minval=0, maxval=25)
-bpr_color = input.color(color.green, "BPR Fill Color")
-bpr_opacity = input.int(20, "BPR Fill Opacity (%)", minval=0, maxval=100)
-use_atr_filter = input.bool(false, "Use ATR filter for FVG size")
+//-------------------- INPUTS --------------------//
+groupBPR = "BPR"
+onOff = input.bool(true, "On/Off", group=groupBPR, inline="BPR_HDR")
+bprColor = input.color(color.green, "Color", group=groupBPR, inline="BPR_HDR")
+bprOpacity = input.int(20, "Opacity", minval=0, maxval=100, group=groupBPR, inline="BPR_HDR")
+midlineOn = input.bool(true, "Midline", group=groupBPR, inline="BPR_HDR")
+labelOpt = input.string("Tiny", "Label size", options=["Tiny","Small","Normal"], group=groupBPR, inline="BPR_HDR")
 
+hideId1 = input.string("", "Hide ID 1", group=groupBPR, inline="BPR_HIDE")
+hideId2 = input.string("", "Hide ID 2", group=groupBPR, inline="BPR_HIDE")
+hideId3 = input.string("", "Hide ID 3", group=groupBPR, inline="BPR_HIDE")
+
+searchStart = input.string("16:30", "Search start (HH:MM)", group=groupBPR, inline="BPR_T1")
+searchEnd   = input.string("18:30", "Search end (HH:MM)", group=groupBPR, inline="BPR_T1")
+displayStart= input.string("16:30", "Display start (HH:MM)", group=groupBPR, inline="BPR_T2")
+displayEnd  = input.string("18:30", "Display end (HH:MM)", group=groupBPR, inline="BPR_T2")
+deleteAt    = input.string("23:00", "Delete at (HH:MM)", group=groupBPR, inline="BPR_T3")
+
+pvOn   = input.bool(false, "Preview", group=groupBPR, inline="BPR_PV")
+pvTf   = input.string("30", "Source TF", options=["15","30","60","240","D"], group=groupBPR, inline="BPR_PV")
+pvN    = input.int(4, "Show last N", minval=0, maxval=10, group=groupBPR, inline="BPR_PV")
+
+//------------------ HELPERS ------------------//
+labelSizeFromStr(s) =>
+    s == "Small" ? size.small : s == "Normal" ? size.normal : size.tiny
+
+HHMM(strT) =>
+    parts = str.split(strT, ":")
+    h = int(str.tonumber(array.get(parts, 0)))
+    m = int(str.tonumber(array.get(parts, 1)))
+    str.tostring(h, "00") + str.tostring(m, "00")
+
+HHMMplus1(strT) =>
+    parts = str.split(strT, ":")
+    h = int(str.tonumber(array.get(parts, 0)))
+    m = int(str.tonumber(array.get(parts, 1)))
+    m += 1
+    if m == 60
+        m := 0
+        h += 1
+    str.tostring(h, "00") + str.tostring(m, "00")
+
+tfMinutes(tf) =>
+    tf == "D" ? 1440 : int(str.tonumber(tf))
+
+sec(tf, expr) =>
+    request.security(syminfo.tickerid, tf, expr, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+
+//------------------- TIME FLAGS -------------------//
+sessSearch  = HHMM(searchStart)  + "-" + HHMM(searchEnd)
+sessDisplay = HHMM(displayStart) + "-" + HHMM(displayEnd)
+sessDelete  = HHMM(deleteAt)     + "-" + HHMMplus1(deleteAt)
 TZ = "Asia/Jerusalem"
-winBPR = "1630-1830"
-sec5(expr) => request.security(syminfo.tickerid, "5", expr, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
 
-o = sec5(open)
-h = sec5(high)
-l = sec5(low)
-c = sec5(close)
-t = sec5(time)
+inSearch5   = not na(time("5", sessSearch, TZ))
+inDisplayTF = not na(time(timeframe.period, sessDisplay, TZ))
+tDel        = time("1", sessDelete, TZ)
+cleanup     = not na(tDel) and na(tDel[1])
 
-y = sec5(year)
-m = sec5(month)
-d = sec5(dayofmonth)
-t1630 = timestamp(TZ, y, m, d, 16, 30)
-t1830 = timestamp(TZ, y, m, d, 18, 30)
-t2300 = timestamp(TZ, y, m, d, 23, 0)
-min5 = 5 * 60000
+//------------------- DATA MODEL -------------------//
+var int nextBprId = 1
+var int[] ids = array.new_int()
+var box[] liveBoxes = array.new_box()
+var line[] liveLines = array.new_line()
+var label[] liveLabels = array.new_label()
 
-in_session = not na(time("5", winBPR, TZ))
-session_open = t >= t1630 and t[1] < t1630
-cleanup = t >= t2300 and t[1] < t2300
+var box[] pvBoxes = array.new_box()
+var line[] pvLines = array.new_line()
+var label[] pvLabels = array.new_label()
 
-var box[] bprs = array.new_box()
-var line[] mids = array.new_line()
-var label[] tags = array.new_label()
-var bool[] dirs = array.new_bool()
-var float[] tops = array.new_float()
-var float[] bottoms = array.new_float()
 var float topB = na
 var float botB = na
-var int   tB = na
+var int tB = na
 var float topS = na
 var float botS = na
-var int   tS = na
-MAX_BPR = 500
+var int tS = na
 
-reset_state() =>
-    if array.size(bprs) > 0
-        for i = 0 to array.size(bprs) - 1
-            box.delete(array.get(bprs, i))
-            line.delete(array.get(mids, i))
-            label.delete(array.get(tags, i))
-    array.clear(bprs)
-    array.clear(mids)
-    array.clear(tags)
-    array.clear(dirs)
-    array.clear(tops)
-    array.clear(bottoms)
+var float pvTopB = na
+var float pvBotB = na
+var int pvTB = na
+var float pvTopS = na
+var float pvBotS = na
+var int pvTS = na
 
-if session_open or cleanup
-    reset_state()
+//------------------- UTILITIES -------------------//
+reset_live() =>
+    for i = 0 to array.size(liveBoxes) - 1
+        box.delete(array.get(liveBoxes, i))
+        line.delete(array.get(liveLines, i))
+        label.delete(array.get(liveLabels, i))
+    array.clear(liveBoxes)
+    array.clear(liveLines)
+    array.clear(liveLabels)
+    array.clear(ids)
     topB := na
     botB := na
     tB := na
@@ -65,125 +102,156 @@ if session_open or cleanup
     botS := na
     tS := na
 
-fill_transp = 100 - bpr_opacity
-bpr_fill = color.new(bpr_color, fill_transp)
-atr5 = sec5(ta.atr(20))
-sens_coeff = sensitivity * 0.08
+reset_preview() =>
+    for i = 0 to array.size(pvBoxes) - 1
+        box.delete(array.get(pvBoxes, i))
+        line.delete(array.get(pvLines, i))
+        label.delete(array.get(pvLabels, i))
+    array.clear(pvBoxes)
+    array.clear(pvLines)
+    array.clear(pvLabels)
+    pvTopB := na
+    pvBotB := na
+    pvTB := na
+    pvTopS := na
+    pvBotS := na
+    pvTS := na
 
-conf5 = request.security(syminfo.tickerid, "5", barstate.isconfirmed, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+fillTransp = 100 - bprOpacity
+bprFill = color.new(bprColor, fillTransp)
+pvFill = color.new(bprColor, math.min(100, fillTransp + 40))
 
-bool new_bull_bpr = false
-bool new_bear_bpr = false
-bool bull_mitigated = false
-bool bear_mitigated = false
-
-make_bpr(_t, _top, _bot, _dir) =>
-    t_end = _t + min5
-    b = box.new(_t, _top, t_end, _bot, xloc=xloc.bar_time, extend=extend.right, border_color=color.black, bgcolor=bpr_fill)
+make_bpr(_t, _top, _bot) =>
+    id = nextBprId
+    nextBprId += 1
+    b = box.new(_t, _top, _t + 5 * 60000, _bot, xloc=xloc.bar_time, extend=extend.right, border_color=color.black, bgcolor=bprFill)
     mid = (_top + _bot) / 2
-    ln = line.new(_t, mid, t_end, mid, xloc=xloc.bar_time, extend=extend.right, color=color.black, width=1, style=line.style_dashed)
+    ln = line.new(_t, mid, _t + 5 * 60000, mid, xloc=xloc.bar_time, extend=extend.right, color=midlineOn ? color.black : na, style=line.style_dashed)
     padY = math.max((_top - _bot) * 0.02, syminfo.mintick * 2)
     padT = 30 * 1000
-    lb = label.new(x=_t + padT, y=_top - padY, text="BPR", xloc=xloc.bar_time, yloc=yloc.price, style=label.style_label_left, size=size.tiny, textcolor=color.black, color=color.new(color.white, 80))
-    array.push(bprs, b)
-    array.push(mids, ln)
-    array.push(tags, lb)
-    array.push(dirs, _dir)
-    array.push(tops, _top)
-    array.push(bottoms, _bot)
+    lb = label.new(_t + padT, _top - padY, "BPR #" + str.tostring(id), xloc=xloc.bar_time, yloc=yloc.price, style=label.style_label_left, size=labelSizeFromStr(labelOpt), textcolor=color.black, color=color.new(color.white, 0))
+    array.push(ids, id)
+    array.push(liveBoxes, b)
+    array.push(liveLines, ln)
+    array.push(liveLabels, lb)
+    if array.size(liveBoxes) > 500
+        box.delete(array.shift(liveBoxes))
+        line.delete(array.shift(liveLines))
+        label.delete(array.shift(liveLabels))
+        array.shift(ids)
 
-bull_fvg = conf5 and in_session and l[1] > h[2]
-bear_fvg = conf5 and in_session and h[1] < l[2]
-if use_atr_filter
-    bull_fvg := bull_fvg and (l[1] - h[2]) >= atr5 * sens_coeff
-    bear_fvg := bear_fvg and (l[2] - h[1]) >= atr5 * sens_coeff
+make_preview_bpr(_t, _top, _bot) =>
+    tfMs = tfMinutes(pvTf) * 60000
+    b = box.new(_t, _top, _t + tfMs, _bot, xloc=xloc.bar_time, extend=extend.right, border_color=color.black, bgcolor=pvFill)
+    mid = (_top + _bot) / 2
+    ln = line.new(_t, mid, _t + tfMs, mid, xloc=xloc.bar_time, extend=extend.right, color=midlineOn ? color.black : na, style=line.style_dashed)
+    padY = math.max((_top - _bot) * 0.02, syminfo.mintick * 2)
+    padT = 30 * 1000
+    lb = label.new(_t + padT, _top - padY, "BPR [PV]", xloc=xloc.bar_time, yloc=yloc.price, style=label.style_label_left, size=labelSizeFromStr(labelOpt), textcolor=color.black, color=color.new(color.white, 0))
+    array.push(pvBoxes, b)
+    array.push(pvLines, ln)
+    array.push(pvLabels, lb)
+    while array.size(pvBoxes) > pvN
+        box.delete(array.shift(pvBoxes))
+        line.delete(array.shift(pvLines))
+        label.delete(array.shift(pvLabels))
 
-if bull_fvg
-    topB := l[1]
-    botB := h[2]
-    tB := t
-    if not na(topS) and t < t1830
-        overTop = math.min(topB, topS)
-        overBot = math.max(botB, botS)
-        if overTop > overBot
-            new_bull_bpr := true
-            make_bpr(tB, overTop, overBot, true)
+update_live_styles() =>
+    for i = 0 to array.size(liveBoxes) - 1
+        b = array.get(liveBoxes, i)
+        ln = array.get(liveLines, i)
+        lb = array.get(liveLabels, i)
+        box.set_bgcolor(b, inDisplayTF ? bprFill : color.new(color.white, 100))
+        line.set_color(ln, inDisplayTF and midlineOn ? color.black : na)
+        label.set_textcolor(lb, inDisplayTF ? color.black : na)
+        label.set_color(lb, inDisplayTF ? color.new(color.white, 0) : na)
+        label.set_size(lb, labelSizeFromStr(labelOpt))
 
-if bear_fvg
-    topS := l[2]
-    botS := h[1]
-    tS := t
-    if not na(topB) and t < t1830
-        overTop = math.min(topB, topS)
-        overBot = math.max(botB, botS)
-        if overTop > overBot
-            new_bear_bpr := true
-            make_bpr(tS, overTop, overBot, false)
+update_preview_styles() =>
+    for i = 0 to array.size(pvBoxes) - 1
+        b = array.get(pvBoxes, i)
+        ln = array.get(pvLines, i)
+        lb = array.get(pvLabels, i)
+        box.set_bgcolor(b, pvFill)
+        line.set_color(ln, midlineOn ? color.black : na)
+        label.set_size(lb, labelSizeFromStr(labelOpt))
 
-if array.size(bprs) > MAX_BPR
-    box.delete(array.shift(bprs))
-    line.delete(array.shift(mids))
-    label.delete(array.shift(tags))
-    array.shift(dirs)
-    array.shift(tops)
-    array.shift(bottoms)
-
-invalidate_low = math.min(c, o)
-invalidate_high = math.max(c, o)
-if array.size(bprs) > 0
-    for i = array.size(bprs) - 1 to 0
-        b = array.get(bprs, i)
-        ln = array.get(mids, i)
-        lb = array.get(tags, i)
-        top = array.get(tops, i)
-        bottom = array.get(bottoms, i)
-        is_bull = array.get(dirs, i)
-        if is_bull
-            if invalidate_low > bottom
-                box.set_right(b, t + min5)
-                line.set_x2(ln, t + min5)
-            else if invalidate_low < bottom
-                bull_mitigated := true
-                if not show_mitigated
-                    box.delete(b)
-                    line.delete(ln)
-                    label.delete(lb)
-                    array.remove(bprs, i)
-                    array.remove(mids, i)
-                    array.remove(tags, i)
-                    array.remove(dirs, i)
-                    array.remove(tops, i)
-                    array.remove(bottoms, i)
-                else
-                    box.set_right(b, t)
-                    line.set_x2(ln, t)
-                    box.set_bgcolor(b, color.new(bpr_color, 95))
-                    box.set_border_color(b, color.black)
-                    line.set_color(ln, color.new(color.black, 95))
+//------------------- MAIN -------------------//
+if barstate.isnew
+    if cleanup or not onOff
+        reset_live()
+        reset_preview()
+        if cleanup
+            nextBprId := 1
+    if onOff
+        hid1 = str.tonumber(hideId1)
+        hid2 = str.tonumber(hideId2)
+        hid3 = str.tonumber(hideId3)
+        for i = array.size(ids) - 1 to 0
+            idv = array.get(ids, i)
+            if (not na(hid1) and idv == hid1) or (not na(hid2) and idv == hid2) or (not na(hid3) and idv == hid3)
+                box.delete(array.get(liveBoxes, i))
+                line.delete(array.get(liveLines, i))
+                label.delete(array.get(liveLabels, i))
+                array.remove(liveBoxes, i)
+                array.remove(liveLines, i)
+                array.remove(liveLabels, i)
+                array.remove(ids, i)
+        t5 = sec("5", time)
+        newBar5 = ta.change(t5) != 0
+        h5 = sec("5", high)
+        l5 = sec("5", low)
+        conf5 = sec("5", barstate.isconfirmed)
+        if inSearch5 and newBar5
+            bullFvg = conf5 and l5[1] > h5[2]
+            if bullFvg
+                topB := l5[1]
+                botB := h5[2]
+                tB := t5
+                if not na(topS)
+                    overTop = math.min(topB, topS)
+                    overBot = math.max(botB, botS)
+                    if overTop > overBot
+                        make_bpr(tB, overTop, overBot)
+            bearFvg = conf5 and h5[1] < l5[2]
+            if bearFvg
+                topS := l5[2]
+                botS := h5[1]
+                tS := t5
+                if not na(topB)
+                    overTop = math.min(topB, topS)
+                    overBot = math.max(botB, botS)
+                    if overTop > overBot
+                        make_bpr(tS, overTop, overBot)
+        update_live_styles()
+        if pvOn
+            tPv = sec(pvTf, time)
+            newPv = ta.change(tPv) != 0
+            hPv = sec(pvTf, high)
+            lPv = sec(pvTf, low)
+            confPv = sec(pvTf, barstate.isconfirmed)
+            if newPv
+                bullPv = confPv and lPv[1] > hPv[2]
+                if bullPv
+                    pvTopB := lPv[1]
+                    pvBotB := hPv[2]
+                    pvTB := tPv
+                    if not na(pvTopS)
+                        overTop = math.min(pvTopB, pvTopS)
+                        overBot = math.max(pvBotB, pvBotS)
+                        if overTop > overBot
+                            make_preview_bpr(pvTB, overTop, overBot)
+                bearPv = confPv and hPv[1] < lPv[2]
+                if bearPv
+                    pvTopS := lPv[2]
+                    pvBotS := hPv[1]
+                    pvTS := tPv
+                    if not na(pvTopB)
+                        overTop = math.min(pvTopB, pvTopS)
+                        overBot = math.max(pvBotB, pvBotS)
+                        if overTop > overBot
+                            make_preview_bpr(pvTS, overTop, overBot)
+            update_preview_styles()
         else
-            if invalidate_high < top
-                box.set_right(b, t + min5)
-                line.set_x2(ln, t + min5)
-            else if invalidate_high > top
-                bear_mitigated := true
-                if not show_mitigated
-                    box.delete(b)
-                    line.delete(ln)
-                    label.delete(lb)
-                    array.remove(bprs, i)
-                    array.remove(mids, i)
-                    array.remove(tags, i)
-                    array.remove(dirs, i)
-                    array.remove(tops, i)
-                    array.remove(bottoms, i)
-                else
-                    box.set_right(b, t)
-                    line.set_x2(ln, t)
-                    box.set_bgcolor(b, color.new(bpr_color, 95))
-                    box.set_border_color(b, color.black)
-                    line.set_color(ln, color.new(color.black, 95))
-
-alertcondition(new_bull_bpr, "Bullish BPR Detected", "New Bullish BPR formed")
-alertcondition(new_bear_bpr, "Bearish BPR Detected", "New Bearish BPR formed")
-alertcondition(bull_mitigated, "Bullish BPR Mitigated", "Bullish BPR has been mitigated")
-alertcondition(bear_mitigated, "Bearish BPR Mitigated", "Bearish BPR has been mitigated")
+            if array.size(pvBoxes) > 0
+                reset_preview()
