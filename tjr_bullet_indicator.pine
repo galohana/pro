@@ -66,7 +66,7 @@ type Zone
 var Zone[] zones = array.new<Zone>()
 
 //========================= Inputs & Colors =========================
-string TZ         = input.string("Asia/Jerusalem", "Timezone (fixed)")
+const string TZ   = "Asia/Jerusalem"
 string sessAsia   = input.session("0100-1000", "Asia (TLV)")
 string sessLondon = input.session("1000-1530", "London (TLV)")
 string sessNY     = input.session("1530-2300", "New York (TLV)")
@@ -75,6 +75,7 @@ string winWatch1  = input.session("1630-1650", "No-Trade 16:30–16:50")
 string winPrime   = input.session("1650-1730", "Prime 16:50–17:30")
 string winNo2     = input.session("1730-1750", "No-Trade 17:30–17:50")
 string winExtra   = input.session("1750-1830", "Extra 17:50–18:30")
+const string winBPR = "1630-1830"
 
 bool showHTF   = input.bool(true,  "Show HTF (1D/4H/1H/30m)")
 bool showDaily = input.bool(true,  "Persist Daily (≤ 1 week)")
@@ -102,6 +103,8 @@ float window_abs = use_ticks_per_point ? liq_window_points * ticks_per_point * s
 fIn(s)    => not na(time(timeframe.period, s, TZ))
 fStart(s) => fIn(s) and not fIn(s)[1]
 fEnd(s)   => not fIn(s) and fIn(s)[1]
+
+sec5(expr) => request.security(syminfo.tickerid, "5", expr, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
 
 //========================= Status Dot (default by time windows) =========================
 var color colStatus = na
@@ -586,42 +589,54 @@ if fStart("2300-2301")
 biasDir() =>
     biasTxt == "LONGS" ? 1 : biasTxt == "SHORTS" ? -1 : 0
 
-o5  = request.security(syminfo.tickerid, "5", open,  barmerge.gaps_off, barmerge.lookahead_off)
-h5  = request.security(syminfo.tickerid, "5", high,  barmerge.gaps_off, barmerge.lookahead_off)
-l5  = request.security(syminfo.tickerid, "5", low,   barmerge.gaps_off, barmerge.lookahead_off)
-c5  = request.security(syminfo.tickerid, "5", close, barmerge.gaps_off, barmerge.lookahead_off)
-t5  = request.security(syminfo.tickerid, "5", time,  barmerge.gaps_off, barmerge.lookahead_off)
-inWin5 = request.security(syminfo.tickerid, "5", not na(time("5", "1630-1830", TZ)), barmerge.gaps_off, barmerge.lookahead_off)
+int t1830 = timestamp(TZ, year, month, dayofmonth, 18, 30)
+int t2300 = timestamp(TZ, year, month, dayofmonth, 23, 0)
 
-timeBullFVG = request.security(syminfo.tickerid, "5", (low[1] > high[2] and not na(time("5","1630-1830",TZ))) ? time[1] : na, barmerge.gaps_off, barmerge.lookahead_off)
-bfvgTop     = request.security(syminfo.tickerid, "5", (low[1] > high[2]) ? low[1] : na, barmerge.gaps_off, barmerge.lookahead_off)
-bfvgBot     = request.security(syminfo.tickerid, "5", (low[1] > high[2]) ? high[2] : na, barmerge.gaps_off, barmerge.lookahead_off)
+o5  = sec5(open)
+h5  = sec5(high)
+l5  = sec5(low)
+c5  = sec5(close)
+t5  = sec5(time)
+inWin5 = sec5(not na(time("5", winBPR, TZ)))
 
-timeBearFVG = request.security(syminfo.tickerid, "5", (high[1] < low[2] and not na(time("5","1630-1830",TZ))) ? time[1] : na, barmerge.gaps_off, barmerge.lookahead_off)
-sfvgTop     = request.security(syminfo.tickerid, "5", (high[1] < low[2]) ? low[2] : na, barmerge.gaps_off, barmerge.lookahead_off)
-sfvgBot     = request.security(syminfo.tickerid, "5", (high[1] < low[2]) ? high[1] : na, barmerge.gaps_off, barmerge.lookahead_off)
+if (t5 >= t2300 and t5[1] < t2300) or (t5 >= t1630 and t5[1] < t1630)
+    resetBPR()
 
-breakUp5  = request.security(syminfo.tickerid, "5", close > ta.highest(high[1], 6) and not na(time("5","1630-1830",TZ)), barmerge.gaps_off, barmerge.lookahead_off)
-breakDn5  = request.security(syminfo.tickerid, "5", close < ta.lowest(low[1], 6) and not na(time("5","1630-1830",TZ)), barmerge.gaps_off, barmerge.lookahead_off)
-timeBullOB = request.security(syminfo.tickerid, "5", breakUp5 and close[1] < open[1] ? time[1] : na, barmerge.gaps_off, barmerge.lookahead_off)
-bOBTop     = request.security(syminfo.tickerid, "5", breakUp5 and close[1] < open[1] ? open[1] : na, barmerge.gaps_off, barmerge.lookahead_off)
-bOBBot     = request.security(syminfo.tickerid, "5", breakUp5 and close[1] < open[1] ? low[1]  : na, barmerge.gaps_off, barmerge.lookahead_off)
-timeBearOB = request.security(syminfo.tickerid, "5", breakDn5 and close[1] > open[1] ? time[1] : na, barmerge.gaps_off, barmerge.lookahead_off)
-sOBTop     = request.security(syminfo.tickerid, "5", breakDn5 and close[1] > open[1] ? high[1] : na, barmerge.gaps_off, barmerge.lookahead_off)
-sOBBot     = request.security(syminfo.tickerid, "5", breakDn5 and close[1] > open[1] ? open[1] : na, barmerge.gaps_off, barmerge.lookahead_off)
+timeBullFVG = sec5((low[1] > high[2] and time[1] >= t1630 and time[2] >= t1630 and time[1] < t1830) ? time[1] : na)
+bfvgTop     = sec5((low[1] > high[2] and time[1] >= t1630 and time[2] >= t1630 and time[1] < t1830) ? low[1] : na)
+bfvgBot     = sec5((low[1] > high[2] and time[1] >= t1630 and time[2] >= t1630 and time[1] < t1830) ? high[2] : na)
+
+timeBearFVG = sec5((high[1] < low[2] and time[1] >= t1630 and time[2] >= t1630 and time[1] < t1830) ? time[1] : na)
+sfvgTop     = sec5((high[1] < low[2] and time[1] >= t1630 and time[2] >= t1630 and time[1] < t1830) ? low[2] : na)
+sfvgBot     = sec5((high[1] < low[2] and time[1] >= t1630 and time[2] >= t1630 and time[1] < t1830) ? high[1] : na)
+
+timeBullOB = sec5((close > ta.highest(high[1], 6) and close[1] < open[1] and time[1] >= t1630 and time[1] < t1830) ? time[1] : na)
+bOBTop     = sec5((close > ta.highest(high[1], 6) and close[1] < open[1] and time[1] >= t1630 and time[1] < t1830) ? open[1] : na)
+bOBBot     = sec5((close > ta.highest(high[1], 6) and close[1] < open[1] and time[1] >= t1630 and time[1] < t1830) ? low[1]  : na)
+timeBearOB = sec5((close < ta.lowest(low[1], 6) and close[1] > open[1] and time[1] >= t1630 and time[1] < t1830) ? time[1] : na)
+sOBTop     = sec5((close < ta.lowest(low[1], 6) and close[1] > open[1] and time[1] >= t1630 and time[1] < t1830) ? high[1] : na)
+sOBBot     = sec5((close < ta.lowest(low[1], 6) and close[1] > open[1] and time[1] >= t1630 and time[1] < t1830) ? open[1] : na)
 
 mkZone(_t, _top, _bot, _kind, _dir, _colBase) =>
     float zTop = math.max(_top, _bot)
     float zBot = math.min(_top, _bot)
-    box bx = box.new(_t, zTop, _t + 1, zBot, xloc=xloc.bar_time, extend=extend.right, border_color=_colBase, bgcolor=color.new(_colBase, 80))
+    color bCol = _kind == "BPR" ? color.green : _colBase
+    color bgCol = _kind == "BPR" ? color.new(color.green, 80) : color.new(_colBase, 80)
+    box bx = box.new(_t, zTop, _t + 1, zBot, xloc=xloc.bar_time, extend=extend.right, border_color=bCol, bgcolor=bgCol)
     trackBox(bx)
     float midY = (zTop + zBot) * 0.5
-    line mid = line.new(_t, midY, _t + 1, midY, xloc=xloc.bar_time, extend=extend.right, color=color.purple, style=line.style_dashed, width=2)
+    color midCol = _kind == "BPR" ? color.black : color.purple
+    int midW = _kind == "BPR" ? 1 : 2
+    line mid = line.new(_t, midY, _t + 1, midY, xloc=xloc.bar_time, extend=extend.right, color=midCol, style=line.style_dashed, width=midW)
     trackLine(mid)
     line tL = line.new(_t, zTop, _t + 1, zTop, xloc=xloc.bar_time, extend=extend.right, color=color.black, width=1)
     line bL = line.new(_t, zBot, _t + 1, zBot, xloc=xloc.bar_time, extend=extend.right, color=color.black, width=1)
     trackLine(tL), trackLine(bL)
-    label lb = label.new(_t + 1, zTop, _kind, xloc=xloc.bar_time, textcolor=color.black, color=color.new(color.white, 100), style=label.style_label_right, size=size.tiny)
+    label lb = na
+    if _kind == "BPR"
+        lb := label.new(_t, zTop, "BPR", xloc=xloc.bar_time, style=label.style_label_left, size=size.tiny, textcolor=color.black, color=color.new(color.white, 80))
+    else
+        lb := label.new(_t + 1, zTop, _kind, xloc=xloc.bar_time, textcolor=color.black, color=color.new(color.white, 100), style=label.style_label_right, size=size.tiny)
     trackLabel(lb)
     Zone.new(bx=bx, mid=mid, topLn=tL, botLn=bL, tag=lb, kind=_kind, dir=_dir, top=zTop, bot=zBot, t0=_t, invalidated=false)
 
@@ -634,6 +649,22 @@ baseCol(kind) =>
      kind == "BB" ? color.purple :
      kind == "FVG" ? color.blue :
      color.green
+
+resetBPR() =>
+    int n = array.size(zones)
+    if n > 0
+        for i = n - 1 to 0
+            Zone z = array.get(zones, i)
+            safeDelBox(z.bx)
+            safeDelLine(z.mid)
+            safeDelLine(z.topLn)
+            safeDelLine(z.botLn)
+            safeDelLabel(z.tag)
+        array.clear(zones)
+    lastBFVG := na
+    lastSFVG := na
+    lastBOB := na
+    lastSOB := na
 
 if not na(timeBullFVG) and (na(lastBFVG) or timeBullFVG != lastBFVG)
     array.push(zones, mkZone(timeBullFVG, bfvgTop, bfvgBot, "FVG", "up", baseCol("FVG")))
