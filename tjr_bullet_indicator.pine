@@ -126,55 +126,56 @@ if array.size(bprs) > MAX_BPR
 
 invalidate_low = math.min(c, o)
 invalidate_high = math.max(c, o)
-for i = array.size(bprs) - 1 to 0
-    b = array.get(bprs, i)
-    ln = array.get(mids, i)
-    lb = array.get(tags, i)
-    top = array.get(tops, i)
-    bottom = array.get(bottoms, i)
-    is_bull = array.get(dirs, i)
-    if is_bull
-        if invalidate_low > bottom
-            box.set_right(b, t + min5)
-            line.set_x2(ln, t + min5)
-        else if invalidate_low < bottom
-            bull_mitigated := true
-            if not show_mitigated
-                box.delete(b)
-                line.delete(ln)
-                label.delete(lb)
-                array.remove(bprs, i)
-                array.remove(mids, i)
-                array.remove(tags, i)
-                array.remove(dirs, i)
-                array.remove(tops, i)
-                array.remove(bottoms, i)
-            else
-                box.set_right(b, t)
-                line.set_x2(ln, t)
-                box.set_bgcolor(b, color.new(color.green, 95))
-                box.set_border_color(b, color.new(color.green, 95))
-    else
-        if invalidate_high < top
-            box.set_right(b, t + min5)
-            line.set_x2(ln, t + min5)
-        else if invalidate_high > top
-            bear_mitigated := true
-            if not show_mitigated
-                box.delete(b)
-                line.delete(ln)
-                label.delete(lb)
-                array.remove(bprs, i)
-                array.remove(mids, i)
-                array.remove(tags, i)
-                array.remove(dirs, i)
-                array.remove(tops, i)
-                array.remove(bottoms, i)
-            else
-                box.set_right(b, t)
-                line.set_x2(ln, t)
-                box.set_bgcolor(b, color.new(color.green, 95))
-                box.set_border_color(b, color.new(color.green, 95))
+if array.size(bprs) > 0
+    for i = array.size(bprs) - 1 to 0
+        b = array.get(bprs, i)
+        ln = array.get(mids, i)
+        lb = array.get(tags, i)
+        top = array.get(tops, i)
+        bottom = array.get(bottoms, i)
+        is_bull = array.get(dirs, i)
+        if is_bull
+            if invalidate_low > bottom
+                box.set_right(b, t + min5)
+                line.set_x2(ln, t + min5)
+            else if invalidate_low < bottom
+                bull_mitigated := true
+                if not show_mitigated
+                    box.delete(b)
+                    line.delete(ln)
+                    label.delete(lb)
+                    array.remove(bprs, i)
+                    array.remove(mids, i)
+                    array.remove(tags, i)
+                    array.remove(dirs, i)
+                    array.remove(tops, i)
+                    array.remove(bottoms, i)
+                else
+                    box.set_right(b, t)
+                    line.set_x2(ln, t)
+                    box.set_bgcolor(b, color.new(color.green, 95))
+                    box.set_border_color(b, color.new(color.green, 95))
+        else
+            if invalidate_high < top
+                box.set_right(b, t + min5)
+                line.set_x2(ln, t + min5)
+            else if invalidate_high > top
+                bear_mitigated := true
+                if not show_mitigated
+                    box.delete(b)
+                    line.delete(ln)
+                    label.delete(lb)
+                    array.remove(bprs, i)
+                    array.remove(mids, i)
+                    array.remove(tags, i)
+                    array.remove(dirs, i)
+                    array.remove(tops, i)
+                    array.remove(bottoms, i)
+                else
+                    box.set_right(b, t)
+                    line.set_x2(ln, t)
+                    box.set_bgcolor(b, color.new(color.green, 95))
+                    box.set_border_color(b, color.new(color.green, 95))
 
 alertcondition(new_bull_bpr, "Bullish BPR Detected", "New Bullish BPR formed")
 alertcondition(new_bear_bpr, "Bearish BPR Detected", "New Bearish BPR formed")
