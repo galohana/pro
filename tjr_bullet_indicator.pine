@@ -1,155 +1,182 @@
-//@version=5
-indicator("BPR [TakingProphets]", overlay=true, max_bars_back=500, max_boxes_count=500)
+//@version=6
+indicator("BPR [TakingProphets]", overlay=true, max_bars_back=500, max_boxes_count=500, max_lines_count=500, max_labels_count=500)
 
-//-----------------------------------------------------------------------------{
-// Inputs
-//-----------------------------------------------------------------------------{
-// General Configuration
-show_mitigated = input.bool(true, "Show Mitigated BPR", group="General Configuration")
-label_size = input.string("Small", "Label Size", options=["Tiny", "Small", "Normal", "Large"], group="General Configuration")
-sensitivity = input.int(2, "Sensitivity", minval=0, maxval=25, group="General Configuration")
-show_labels = input.bool(true, "Show Labels", group="General Configuration")
+show_mitigated = input.bool(true, "Show Mitigated BPR")
+sensitivity = input.int(2, "Sensitivity", minval=0, maxval=25)
 
-// Midpoint Line
-show_midpoint = input.bool(true, "Show Midpoint Line", group="Midpoint Line")
-midpoint_color = input.color(color.white, "Midpoint Color", group="Midpoint Line")
-midpoint_style_str = input.string("Dashed", "Midpoint Style", options=["Solid", "Dashed", "Dotted"], group="Midpoint Line")
-midpoint_width = input.int(1, "Midpoint Width", minval=1, group="Midpoint Line")
+TZ = "Asia/Jerusalem"
+winBPR = "1630-1830"
+sec5(expr) => request.security(syminfo.tickerid, "5", expr, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
 
-// Colors
-bearish_bpr_color = input.color(color.new(color.red, 70), "Bearish BPR Color", group="Colors")
-bullish_bpr_color = input.color(color.new(color.green, 70), "Bullish BPR Color", group="Colors")
+o = sec5(open)
+h = sec5(high)
+l = sec5(low)
+c = sec5(close)
+t = sec5(time)
 
-// Calculate text size
-var text_size = switch label_size
-    "Tiny" => size.tiny
-    "Small" => size.small
-    "Large" => size.large
-    => size.normal
+y = sec5(year)
+m = sec5(month)
+d = sec5(dayofmonth)
+t1630 = timestamp(TZ, y, m, d, 16, 30)
+t1830 = timestamp(TZ, y, m, d, 18, 30)
+t2300 = timestamp(TZ, y, m, d, 23, 0)
+min5 = 5 * 60000
 
-var line bull_midline = na
-var line bear_midline = na
+in_session = not na(time("5", winBPR, TZ))
+session_open = t >= t1630 and t[1] < t1630
+cleanup = t >= t2300 and t[1] < t2300
 
-var midpoint_style = switch midpoint_style_str
-    "Dashed" => line.style_dashed
-    "Dotted" => line.style_dotted
-    => line.style_solid
+var box[] bprs = array.new_box()
+var line[] mids = array.new_line()
+var label[] tags = array.new_label()
+var bool[] dirs = array.new_bool()
+var float[] tops = array.new_float()
+var float[] bottoms = array.new_float()
+MAX_BPR = 500
 
-var box box_bullish = na
-var box box_bearish = na
+reset_state() =>
+    for i = 0 to array.size(bprs) - 1
+        box.delete(array.get(bprs, i))
+        line.delete(array.get(mids, i))
+        label.delete(array.get(tags, i))
+    array.clear(bprs)
+    array.clear(mids)
+    array.clear(tags)
+    array.clear(dirs)
+    array.clear(tops)
+    array.clear(bottoms)
 
-// FVG Detection with conditions
-atr = ta.atr(20)
+if session_open or cleanup
+    reset_state()
+
+atr = sec5(ta.atr(20))
 sens_coeff = sensitivity * 0.08
 
-body_size = math.abs(open - close)
+body_size = math.abs(o - c)
 base_cond = (sensitivity == 0 or body_size[1] > (body_size + body_size[2]) * 0.3)
 
-is_bar_bull = close > open
+is_bar_bull = c > o
 type_cond = true
 
-new_fvg_bearish = base_cond and type_cond and low[2] > high and (low[2] - high) > atr * sens_coeff
-new_fvg_bullish = base_cond and type_cond and low > high[2] and (low - high[2]) > atr * sens_coeff
+new_fvg_bearish = base_cond and type_cond and l[2] > h and (l[2] - h) > atr * sens_coeff
+new_fvg_bullish = base_cond and type_cond and l > h[2] and (l - h[2]) > atr * sens_coeff
+new_fvg_bearish_w = in_session ? new_fvg_bearish : false
+new_fvg_bullish_w = in_session ? new_fvg_bullish : false
+bull_num_since = ta.barssince(new_fvg_bearish_w)
+bear_num_since = ta.barssince(new_fvg_bullish_w)
 
-// Bullish BPR
 bool new_bull_bpr = false
+bool new_bear_bpr = false
 bool bull_mitigated = false
-bull_num_since = ta.barssince(new_fvg_bearish)
-if not na(bull_num_since)
+bool bear_mitigated = false
+
+if not na(bull_num_since) and t < t1830 and in_session
     bull_bpr_cond_1 = new_fvg_bullish
-    bull_bpr_cond_2 = high[bull_num_since] + low[bull_num_since + 2] + high[2] + low > math.max(low[bull_num_since + 2], low) - math.min(high[bull_num_since], high[2])
-    
+    bull_bpr_cond_2 = h[bull_num_since] + l[bull_num_since + 2] + h[2] + l > math.max(l[bull_num_since + 2], l) - math.min(h[bull_num_since], h[2])
     if bull_bpr_cond_1 and bull_bpr_cond_2
         new_bull_bpr := true
-        bull_combined_low = math.max(high[bull_num_since], high[2])
-        bull_combined_high = math.min(low[bull_num_since + 2], low)
-        
+        bull_combined_low = math.max(h[bull_num_since], h[2])
+        bull_combined_high = math.min(l[bull_num_since + 2], l)
         if bull_combined_high > bull_combined_low
-            if not na(box_bullish)
-                box.delete(box_bullish)
-            box_bullish := box.new(bar_index - bull_num_since - 1, bull_combined_high, bar_index + 1, bull_combined_low, 
-                 border_color=bullish_bpr_color, border_width=1, bgcolor=bullish_bpr_color,
-                 text= show_labels ? "BPR" : "", text_size=text_size, text_color=color.white,
-                 text_halign=text.align_right, text_valign=text.align_bottom)
-            if show_midpoint
-                mid = (bull_combined_high + bull_combined_low) / 2
-                if not na(bull_midline)
-                    line.delete(bull_midline)
-                bull_midline := line.new(bar_index - bull_num_since - 1, mid, bar_index + 1, mid, color=midpoint_color, width=midpoint_width, style=midpoint_style)
+            t_start = t[bull_num_since + 1]
+            t_end = t + min5
+            top = bull_combined_high
+            bottom = bull_combined_low
+            b = box.new(t_start, top, t_end, bottom, xloc=xloc.bar_time, extend=extend.right, border_color=color.green, bgcolor=color.new(color.green, 80))
+            mid = (top + bottom) / 2
+            ln = line.new(t_start, mid, t_end, mid, xloc=xloc.bar_time, extend=extend.right, color=color.black, width=1, style=line.style_dashed)
+            lb = label.new(x=t_start, y=top, text="BPR", xloc=xloc.bar_time, yloc=yloc.price, style=label.style_label_left, size=size.tiny, textcolor=color.black, color=color.new(color.white, 80), textalign=text.align_left)
+            array.push(bprs, b)
+            array.push(mids, ln)
+            array.push(tags, lb)
+            array.push(dirs, true)
+            array.push(tops, top)
+            array.push(bottoms, bottom)
 
-// Bearish BPR
-bool new_bear_bpr = false
-bool bear_mitigated = false
-bear_num_since = ta.barssince(new_fvg_bullish)
-if not na(bear_num_since)
+if not na(bear_num_since) and t < t1830 and in_session
     bear_bpr_cond_1 = new_fvg_bearish
-    bear_bpr_cond_2 = high[bear_num_since] + low[bear_num_since + 2] + high[2] + low > math.max(low[bear_num_since + 2], low) - math.min(high[bear_num_since], high[2])
-    
+    bear_bpr_cond_2 = h[bear_num_since] + l[bear_num_since + 2] + h[2] + l > math.max(l[bear_num_since + 2], l) - math.min(h[bear_num_since], h[2])
     if bear_bpr_cond_1 and bear_bpr_cond_2
         new_bear_bpr := true
-        bear_combined_low = math.max(high[bear_num_since + 2], high)
-        bear_combined_high = math.min(low[bear_num_since], low[2])
-        
+        bear_combined_low = math.max(h[bear_num_since + 2], h)
+        bear_combined_high = math.min(l[bear_num_since], l[2])
         if bear_combined_high > bear_combined_low
-            if not na(box_bearish)
-                box.delete(box_bearish)
-            box_bearish := box.new(bar_index - bear_num_since - 1, bear_combined_high, bar_index + 1, bear_combined_low, 
-                 border_color=bearish_bpr_color, border_width=1, bgcolor=bearish_bpr_color,
-                 text= show_labels ? "BPR" : "", text_size=text_size, text_color=color.white,
-                 text_halign=text.align_right, text_valign=text.align_bottom)
-            if show_midpoint
-                mid = (bear_combined_high + bear_combined_low) / 2
-                if not na(bear_midline)
-                    line.delete(bear_midline)
-                bear_midline := line.new(bar_index - bear_num_since - 1, mid, bar_index + 1, mid, color=midpoint_color, width=midpoint_width, style=midpoint_style)
+            t_start = t[bear_num_since + 1]
+            t_end = t + min5
+            top = bear_combined_high
+            bottom = bear_combined_low
+            b = box.new(t_start, top, t_end, bottom, xloc=xloc.bar_time, extend=extend.right, border_color=color.green, bgcolor=color.new(color.green, 80))
+            mid = (top + bottom) / 2
+            ln = line.new(t_start, mid, t_end, mid, xloc=xloc.bar_time, extend=extend.right, color=color.black, width=1, style=line.style_dashed)
+            lb = label.new(x=t_start, y=top, text="BPR", xloc=xloc.bar_time, yloc=yloc.price, style=label.style_label_left, size=size.tiny, textcolor=color.black, color=color.new(color.white, 80), textalign=text.align_left)
+            array.push(bprs, b)
+            array.push(mids, ln)
+            array.push(tags, lb)
+            array.push(dirs, false)
+            array.push(tops, top)
+            array.push(bottoms, bottom)
 
-// Update existing boxes with invalidation
-invalidate_low = math.min(close, open)
-invalidate_high = math.max(close, open)
+if array.size(bprs) > MAX_BPR
+    box.delete(array.shift(bprs))
+    line.delete(array.shift(mids))
+    label.delete(array.shift(tags))
+    array.shift(dirs)
+    array.shift(tops)
+    array.shift(bottoms)
 
-if not na(box_bullish)
-    if invalidate_low > box.get_bottom(box_bullish)
-        box.set_right(box_bullish, bar_index + 1)
-        if show_midpoint and not na(bull_midline)
-            line.set_x2(bull_midline, bar_index + 1)
-    else if invalidate_low < box.get_bottom(box_bullish)
-        bull_mitigated := true
-        if not show_mitigated
-            box.delete(box_bullish)
-            box_bullish := na
-            if show_midpoint and not na(bull_midline)
-                line.delete(bull_midline)
-                bull_midline := na
-        else
-            box.set_right(box_bullish, bar_index)  // Stop at mitigating candle
-            box.set_bgcolor(box_bullish, color.new(bullish_bpr_color, 95))
-            box.set_border_color(box_bullish, color.new(bullish_bpr_color, 95))
-            if show_midpoint and not na(bull_midline)
-                line.set_x2(bull_midline, bar_index)
+invalidate_low = math.min(c, o)
+invalidate_high = math.max(c, o)
+for i = array.size(bprs) - 1 to 0
+    b = array.get(bprs, i)
+    ln = array.get(mids, i)
+    lb = array.get(tags, i)
+    top = array.get(tops, i)
+    bottom = array.get(bottoms, i)
+    is_bull = array.get(dirs, i)
+    if is_bull
+        if invalidate_low > bottom
+            box.set_right(b, t + min5)
+            line.set_x2(ln, t + min5)
+        else if invalidate_low < bottom
+            bull_mitigated := true
+            if not show_mitigated
+                box.delete(b)
+                line.delete(ln)
+                label.delete(lb)
+                array.remove(bprs, i)
+                array.remove(mids, i)
+                array.remove(tags, i)
+                array.remove(dirs, i)
+                array.remove(tops, i)
+                array.remove(bottoms, i)
+            else
+                box.set_right(b, t)
+                line.set_x2(ln, t)
+                box.set_bgcolor(b, color.new(color.green, 95))
+                box.set_border_color(b, color.new(color.green, 95))
+    else
+        if invalidate_high < top
+            box.set_right(b, t + min5)
+            line.set_x2(ln, t + min5)
+        else if invalidate_high > top
+            bear_mitigated := true
+            if not show_mitigated
+                box.delete(b)
+                line.delete(ln)
+                label.delete(lb)
+                array.remove(bprs, i)
+                array.remove(mids, i)
+                array.remove(tags, i)
+                array.remove(dirs, i)
+                array.remove(tops, i)
+                array.remove(bottoms, i)
+            else
+                box.set_right(b, t)
+                line.set_x2(ln, t)
+                box.set_bgcolor(b, color.new(color.green, 95))
+                box.set_border_color(b, color.new(color.green, 95))
 
-if not na(box_bearish)
-    if invalidate_high < box.get_top(box_bearish)
-        box.set_right(box_bearish, bar_index + 1)
-        if show_midpoint and not na(bear_midline)
-            line.set_x2(bear_midline, bar_index + 1)
-    else if invalidate_high > box.get_top(box_bearish)
-        bear_mitigated := true
-        if not show_mitigated
-            box.delete(box_bearish)
-            box_bearish := na
-            if show_midpoint and not na(bear_midline)
-                line.delete(bear_midline)
-                bear_midline := na
-        else
-            box.set_right(box_bearish, bar_index)  // Stop at mitigating candle
-            box.set_bgcolor(box_bearish, color.new(bearish_bpr_color, 95))
-            box.set_border_color(box_bearish, color.new(bearish_bpr_color, 95))
-            if show_midpoint and not na(bear_midline)
-                line.set_x2(bear_midline, bar_index)
-
-// Alerts
 alertcondition(new_bull_bpr, "Bullish BPR Detected", "New Bullish BPR formed")
 alertcondition(new_bear_bpr, "Bearish BPR Detected", "New Bearish BPR formed")
 alertcondition(bull_mitigated, "Bullish BPR Mitigated", "Bullish BPR has been mitigated")
 alertcondition(bear_mitigated, "Bearish BPR Mitigated", "Bearish BPR has been mitigated")
-//-----------------------------------------------------------------------------} 
