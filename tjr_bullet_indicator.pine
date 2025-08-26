@@ -55,15 +55,15 @@ reset_state() =>
     array.clear(dirs)
     array.clear(tops)
     array.clear(bottoms)
+
+if session_open or cleanup
+    reset_state()
     topB := na
     botB := na
     tB := na
     topS := na
     botS := na
     tS := na
-
-if session_open or cleanup
-    reset_state()
 
 fill_transp = 100 - bpr_opacity
 bpr_fill = color.new(bpr_color, fill_transp)
