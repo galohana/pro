@@ -35,7 +35,7 @@ inSess(tf, s, tz) =>
 
 // Confirmed bar helper for any pattern logic
 confirmOn(tf, cond) =>
-    secConf = request.security(syminfo.tickerid, tf, barstate.isconfirmed ? cond : na, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+    request.security(syminfo.tickerid, tf, barstate.isconfirmed ? cond : bool(na), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
     // Returns cond only when bar is confirmed
 
 //----------------------------------------------------------//
