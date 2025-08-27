@@ -300,49 +300,43 @@ if barstate.isnew
     //--- Preview logic (always scans, no session gates)
     if pvOn
         tPv = sec(pvTf, time)
-        closePv = sec(pvTf, close)
-        newPv = (tPv != tPv[1])
-        if newPv
-            if array.size(pvBoxes) > 0
-                i = 0
-                while i < array.size(pvBoxes)
-                    top = getFloat(pvTops, i)
-                    bot = getFloat(pvBots, i)
-                    tC  = getInt(pvTimes, i)
-                    if tPv > tC and ((closePv > top) or (closePv < bot))
-                        safeDelBox(getBox(pvBoxes, i))
-                        safeDelLine(getLine(pvLines, i))
-                        safeDelLabel(getLabel(pvLabels, i))
-                        array.remove(pvBoxes, i)
-                        array.remove(pvLines, i)
-                        array.remove(pvLabels, i)
-                        array.remove(pvTops, i)
-                        array.remove(pvBots, i)
-                        array.remove(pvTimes, i)
-                    else
-                        i += 1
-            bullPv = sec(pvTf, barstate.isconfirmed and low[1] > high[2])
-            bearPv = sec(pvTf, barstate.isconfirmed and high[1] < low[2])
-            if bullPv
-                pvTB   := sec(pvTf, time[1])
-                pvTopB := sec(pvTf, low[1])
-                pvBotB := sec(pvTf, high[2])
-                if not na(pvTopS)
-                    overTop = math.min(pvTopB, pvTopS)
-                    overBot = math.max(pvBotB, pvBotS)
-                    if overTop > overBot
-                        tStart = math.min(pvTB, pvTS)
-                        make_preview_bpr(tStart, overTop, overBot)
-            if bearPv
-                pvTS   := sec(pvTf, time[1])
-                pvTopS := sec(pvTf, low[2])
-                pvBotS := sec(pvTf, high[1])
-                if not na(pvTopB)
-                    overTop = math.min(pvTopB, pvTopS)
-                    overBot = math.max(pvBotB, pvBotS)
-                    if overTop > overBot
-                        tStart = math.min(pvTB, pvTS)
-                        make_preview_bpr(tStart, overTop, overBot)
+        hPv = sec(pvTf, high)
+        lPv = sec(pvTf, low)
+        cPv = sec(pvTf, close)
+        bullFVG = lPv[1] > hPv[2]
+        bearFVG = hPv[1] < lPv[2]
+        newBull = bullFVG and not bullFVG[1]
+        newBear = bearFVG and not bearFVG[1]
+        if newBull
+            pvTopB := lPv[1]
+            pvBotB := hPv[2]
+            pvTB   := tPv[0]
+        if newBear
+            pvTopS := lPv[2]
+            pvBotS := hPv[1]
+            pvTS   := tPv[0]
+        if not na(pvTopB) and not na(pvTopS)
+            overTop = math.min(pvTopB, pvTopS)
+            overBot = math.max(pvBotB, pvBotS)
+            if overTop > overBot
+                tStart = math.min(pvTB, pvTS)
+                make_preview_bpr(tStart, overTop, overBot)
+        i = 0
+        while i < array.size(pvBoxes)
+            top = getFloat(pvTops, i)
+            bot = getFloat(pvBots, i)
+            if (cPv > top) or (cPv < bot)
+                safeDelBox(getBox(pvBoxes, i))
+                safeDelLine(getLine(pvLines, i))
+                safeDelLabel(getLabel(pvLabels, i))
+                array.remove(pvBoxes, i)
+                array.remove(pvLines, i)
+                array.remove(pvLabels, i)
+                array.remove(pvTops, i)
+                array.remove(pvBots, i)
+                array.remove(pvTimes, i)
+            else
+                i += 1
         while array.size(pvBoxes) > pvN
             safeDelBox(array.shift(pvBoxes))
             safeDelLine(array.shift(pvLines))
