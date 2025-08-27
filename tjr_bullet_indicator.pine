@@ -217,20 +217,39 @@ update_preview_styles() =>
 
 //------------------- MAIN -------------------//
 if barstate.isnew
-    if cleanup or not onOff
+    if cleanup
         reset_live()
-        if cleanup
-            nextBprId := 1
+        reset_preview()
+        nextBprId := 1
         topB := na
         botB := na
         tB := na
         topS := na
         botS := na
         tS := na
-    if not pvOn and (array.size(pvBoxes) > 0 or array.size(pvLines) > 0 or array.size(pvLabels) > 0)
-        reset_preview()
-        pvTopB := na, pvBotB := na, pvTB := na
-        pvTopS := na, pvBotS := na, pvTS := na
+        pvTopB := na
+        pvBotB := na
+        pvTB := na
+        pvTopS := na
+        pvBotS := na
+        pvTS := na
+    else
+        if not onOff
+            reset_live()
+            topB := na
+            botB := na
+            tB := na
+            topS := na
+            botS := na
+            tS := na
+        if not pvOn and (array.size(pvBoxes) > 0 or array.size(pvLines) > 0 or array.size(pvLabels) > 0)
+            reset_preview()
+            pvTopB := na
+            pvBotB := na
+            pvTB := na
+            pvTopS := na
+            pvBotS := na
+            pvTS := na
     if onOff
         hid1 = str.tonumber(hideId1)
         hid2 = str.tonumber(hideId2)
@@ -280,39 +299,34 @@ if barstate.isnew
         update_live_styles()
     //--- Preview logic (always scans, no session gates)
     if pvOn
-        tPv = request.security(syminfo.tickerid, pvTf, time, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
-        hPv = request.security(syminfo.tickerid, pvTf, high, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
-        lPv = request.security(syminfo.tickerid, pvTf, low,  gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
-        closePv = request.security(syminfo.tickerid, pvTf, close, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+        tPv = sec(pvTf, time)
+        closePv = sec(pvTf, close)
         newPv = (tPv != tPv[1])
-        // --- Mitigation check for preview BPRs
-        if newPv and array.size(pvBoxes) > 0
-            i = 0
-            while i < array.size(pvBoxes)
-                top = getFloat(pvTops, i)
-                bot = getFloat(pvBots, i)
-                // Remove if close beyond either boundary (mitigated)
-                if not na(top) and not na(bot) and ((closePv > top) or (closePv < bot))
-                    safeDelBox(getBox(pvBoxes, i))
-                    safeDelLine(getLine(pvLines, i))
-                    safeDelLabel(getLabel(pvLabels, i))
-                    array.remove(pvBoxes, i)
-                    array.remove(pvLines, i)
-                    array.remove(pvLabels, i)
-                    array.remove(pvTops, i)
-                    array.remove(pvBots, i)
-                    array.remove(pvTimes, i)
-                    // do NOT increment i, as arrays shift down
-                else
-                    i += 1
-        // --- BPR detection
         if newPv
-            bullPv = lPv[1] > hPv[2]
-            bearPv = hPv[1] < lPv[2]
+            if array.size(pvBoxes) > 0
+                i = 0
+                while i < array.size(pvBoxes)
+                    top = getFloat(pvTops, i)
+                    bot = getFloat(pvBots, i)
+                    tC  = getInt(pvTimes, i)
+                    if tPv > tC and ((closePv > top) or (closePv < bot))
+                        safeDelBox(getBox(pvBoxes, i))
+                        safeDelLine(getLine(pvLines, i))
+                        safeDelLabel(getLabel(pvLabels, i))
+                        array.remove(pvBoxes, i)
+                        array.remove(pvLines, i)
+                        array.remove(pvLabels, i)
+                        array.remove(pvTops, i)
+                        array.remove(pvBots, i)
+                        array.remove(pvTimes, i)
+                    else
+                        i += 1
+            bullPv = sec(pvTf, barstate.isconfirmed and low[1] > high[2])
+            bearPv = sec(pvTf, barstate.isconfirmed and high[1] < low[2])
             if bullPv
-                pvTB   := request.security(syminfo.tickerid, pvTf, time,    gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
-                pvTopB := request.security(syminfo.tickerid, pvTf, low[1],  gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
-                pvBotB := request.security(syminfo.tickerid, pvTf, high[2], gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+                pvTB   := sec(pvTf, time[1])
+                pvTopB := sec(pvTf, low[1])
+                pvBotB := sec(pvTf, high[2])
                 if not na(pvTopS)
                     overTop = math.min(pvTopB, pvTopS)
                     overBot = math.max(pvBotB, pvBotS)
@@ -320,16 +334,15 @@ if barstate.isnew
                         tStart = math.min(pvTB, pvTS)
                         make_preview_bpr(tStart, overTop, overBot)
             if bearPv
-                pvTS   := request.security(syminfo.tickerid, pvTf, time,    gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
-                pvTopS := request.security(syminfo.tickerid, pvTf, low[2],  gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
-                pvBotS := request.security(syminfo.tickerid, pvTf, high[1], gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+                pvTS   := sec(pvTf, time[1])
+                pvTopS := sec(pvTf, low[2])
+                pvBotS := sec(pvTf, high[1])
                 if not na(pvTopB)
                     overTop = math.min(pvTopB, pvTopS)
                     overBot = math.max(pvBotB, pvBotS)
                     if overTop > overBot
                         tStart = math.min(pvTB, pvTS)
                         make_preview_bpr(tStart, overTop, overBot)
-        // Enforce FIFO so only N survivors remain
         while array.size(pvBoxes) > pvN
             safeDelBox(array.shift(pvBoxes))
             safeDelLine(array.shift(pvLines))
