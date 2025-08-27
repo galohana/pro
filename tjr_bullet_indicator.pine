@@ -33,18 +33,10 @@ getBool(bool[] a, int i) =>
 inSess(tf, s, tz) =>
     not na(time(tf, s, tz))
 
-// Confirmed bar helper for any pattern logic
-confirmOn(tf, cond) =>
-    request.security(syminfo.tickerid, tf, barstate.isconfirmed ? cond : bool(na), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
-    // Returns cond only when bar is confirmed
-
-//----------------------------------------------------------//
-
 //-------------------- INPUTS --------------------//
 groupBPR = "BPR"
 onOff = input.bool(true, "On/Off", group=groupBPR, inline="BPR_HDR")
 bprColor = input.color(color.green, "Color", group=groupBPR, inline="BPR_HDR")
-bprOpacity = input.int(20, "Opacity", minval=0, maxval=100, group=groupBPR, inline="BPR_HDR")
 midlineOn = input.bool(true, "Midline", group=groupBPR, inline="BPR_HDR")
 labelOpt = input.string("Tiny", "Label size", options=["Tiny","Small","Normal"], group=groupBPR, inline="BPR_HDR")
 
@@ -66,6 +58,15 @@ pvN    = input.int(4, "Show last N", minval=0, maxval=10, group=groupBPR, inline
 labelSizeFromStr(s) =>
     s == "Small" ? size.small : s == "Normal" ? size.normal : size.tiny
 
+// Helper for smart label placement inside or above the box (no chart.*)
+placeLabel(top, bot, t0, isPreview) =>
+    padY = math.max((top - bot) * 0.02, syminfo.mintick * 2)
+    // Minimal box height (in price ticks) required to place text inside:
+    minH = syminfo.mintick * (labelOpt == "Tiny" ? 6 : labelOpt == "Small" ? 10 : 14)
+    y = (top - bot) >= minH ? (top - padY) : (top + padY)
+    [t0 + 30 * 1000, y, labelSizeFromStr(labelOpt)]
+
+//------------------- TIME FLAGS -------------------//
 HHMM(strT) =>
     parts = str.split(strT, ":")
     h = int(str.tonumber((array.size(parts) > 0) ? array.get(parts, 0) : "0"))
@@ -88,7 +89,6 @@ tfMinutes(tf) =>
 sec(tf, expr) =>
     request.security(syminfo.tickerid, tf, expr, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
 
-//------------------- TIME FLAGS -------------------//
 sessSearch  = HHMM(searchStart)  + "-" + HHMM(searchEnd)
 sessDisplay = HHMM(displayStart) + "-" + HHMM(displayEnd)
 sessDelete  = HHMM(deleteAt)     + "-" + HHMMplus1(deleteAt)
@@ -109,6 +109,10 @@ var label[] liveLabels = array.new_label()
 var box[] pvBoxes = array.new_box()
 var line[] pvLines = array.new_line()
 var label[] pvLabels = array.new_label()
+// Preview meta for mitigation logic
+var float[] pvTops = array.new_float()
+var float[] pvBots = array.new_float()
+var int[]   pvTimes = array.new_int()
 
 var float topB = na
 var float botB = na
@@ -143,18 +147,20 @@ reset_preview() =>
     array.clear(pvBoxes)
     array.clear(pvLines)
     array.clear(pvLabels)
+    array.clear(pvTops)
+    array.clear(pvBots)
+    array.clear(pvTimes)
 
-fillTransp = 100 - bprOpacity
-bprFill = color.new(bprColor, fillTransp)
-pvFill = color.new(bprColor, math.min(100, fillTransp + 40))
+bprFill = bprColor
+pvFill = color.new(bprColor, 40)
 
-make_bpr(_t, _top, _bot, _id) =>
-    b = box.new(_t, _top, _t + 5 * 60000, _bot, xloc=xloc.bar_time, extend=extend.right, border_color=color.black, bgcolor=bprFill)
+//------------------- BUILDERS -------------------//
+make_bpr(_tStart, _top, _bot, _id) =>
+    b = box.new(_tStart, _top, _tStart + 5 * 60000, _bot, xloc=xloc.bar_time, extend=extend.right, border_color=color.black, bgcolor=bprFill)
     mid = (_top + _bot) / 2
-    ln = line.new(_t, mid, _t + 5 * 60000, mid, xloc=xloc.bar_time, extend=extend.right, color=midlineOn ? color.black : color(na), style=line.style_dashed)
-    padY = math.max((_top - _bot) * 0.02, syminfo.mintick * 2)
-    padT = 30 * 1000
-    lb = label.new(_t + padT, _top - padY, "BPR #" + str.tostring(_id), xloc=xloc.bar_time, yloc=yloc.price, style=label.style_label_left, size=labelSizeFromStr(labelOpt), textcolor=color.black, color=color.new(color.white, 0))
+    [lx, ly, lsz] = placeLabel(_top, _bot, _tStart, false)
+    ln = line.new(_tStart, mid, _tStart + 5 * 60000, mid, xloc=xloc.bar_time, extend=extend.right, color=midlineOn ? color.black : color(na), style=line.style_dashed)
+    lb = label.new(lx, ly, "BPR #" + str.tostring(_id), xloc=xloc.bar_time, yloc=yloc.price, style=label.style_label_left, size=lsz, textcolor=color.black, color=color(na))
     array.push(ids, _id)
     array.push(liveBoxes, b)
     array.push(liveLines, ln)
@@ -166,22 +172,21 @@ make_bpr(_t, _top, _bot, _id) =>
         safeDelLabel(array.shift(liveLabels))
         array.shift(ids)
 
-make_preview_bpr(_t, _top, _bot) =>
+make_preview_bpr(_tStart, _top, _bot) =>
     tfMs = tfMinutes(pvTf) * 60000
-    b = box.new(_t, _top, _t + tfMs, _bot, xloc=xloc.bar_time, extend=extend.right, border_color=color.black, bgcolor=pvFill)
+    b = box.new(_tStart, _top, _tStart + tfMs, _bot, xloc=xloc.bar_time, extend=extend.right, border_color=color.black, bgcolor=pvFill)
     mid = (_top + _bot) / 2
-    ln = line.new(_t, mid, _t + tfMs, mid, xloc=xloc.bar_time, extend=extend.right, color=midlineOn ? color.black : color(na), style=line.style_dashed)
-    padY = math.max((_top - _bot) * 0.02, syminfo.mintick * 2)
-    padT = 30 * 1000
-    lb = label.new(_t + padT, _top - padY, "BPR [PV]", xloc=xloc.bar_time, yloc=yloc.price, style=label.style_label_left, size=labelSizeFromStr(labelOpt), textcolor=color.black, color=color.new(color.white, 0))
+    [lx, ly, lsz] = placeLabel(_top, _bot, _tStart, true)
+    ln = line.new(_tStart, mid, _tStart + tfMs, mid, xloc=xloc.bar_time, extend=extend.right, color=midlineOn ? color.black : color(na), style=line.style_dashed)
+    lb = label.new(lx, ly, "BPR [PV]", xloc=xloc.bar_time, yloc=yloc.price, style=label.style_label_left, size=lsz, textcolor=color.black, color=color(na))
     array.push(pvBoxes, b)
     array.push(pvLines, ln)
     array.push(pvLabels, lb)
-    // Enforce FIFO max objects
-    while array.size(pvBoxes) > pvN
-        safeDelBox(array.shift(pvBoxes))
-        safeDelLine(array.shift(pvLines))
-        safeDelLabel(array.shift(pvLabels))
+    array.push(pvTops, _top)
+    array.push(pvBots, _bot)
+    array.push(pvTimes, _tStart)
+    // Enforce FIFO max objects (after mitigation logic)
+    // (Handled after mitigation logic in main)
 
 update_live_styles() =>
     for i = 0 to array.size(liveBoxes) - 1
@@ -194,7 +199,7 @@ update_live_styles() =>
             line.set_color(ln, inDisplayTF and midlineOn ? color.black : color(na))
         if not na(lb)
             label.set_textcolor(lb, inDisplayTF ? color.black : color(na))
-            label.set_color(lb, inDisplayTF ? color.new(color.white, 0) : color(na))
+            label.set_color(lb, color(na))
             label.set_size(lb, labelSizeFromStr(labelOpt))
 
 update_preview_styles() =>
@@ -207,13 +212,13 @@ update_preview_styles() =>
         if not na(ln)
             line.set_color(ln, midlineOn ? color.black : color(na))
         if not na(lb)
+            label.set_color(lb, color(na))
             label.set_size(lb, labelSizeFromStr(labelOpt))
 
 //------------------- MAIN -------------------//
 if barstate.isnew
     if cleanup or not onOff
         reset_live()
-        reset_preview()
         if cleanup
             nextBprId := 1
         topB := na
@@ -222,12 +227,10 @@ if barstate.isnew
         topS := na
         botS := na
         tS := na
-        pvTopB := na
-        pvBotB := na
-        pvTB := na
-        pvTopS := na
-        pvBotS := na
-        pvTS := na
+    if not pvOn and (array.size(pvBoxes) > 0 or array.size(pvLines) > 0 or array.size(pvLabels) > 0)
+        reset_preview()
+        pvTopB := na, pvBotB := na, pvTB := na
+        pvTopS := na, pvBotS := na, pvTS := na
     if onOff
         hid1 = str.tonumber(hideId1)
         hid2 = str.tonumber(hideId2)
@@ -242,75 +245,96 @@ if barstate.isnew
                 array.remove(liveLines, i)
                 array.remove(liveLabels, i)
                 array.remove(ids, i)
-        //--- 5min logic
-        t5 = sec("5", time)
+        //--- 5min logic (session-gated)
+        t5 = request.security(syminfo.tickerid, "5", time, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+        h5 = request.security(syminfo.tickerid, "5", high, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+        l5 = request.security(syminfo.tickerid, "5", low,  gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
         newBar5 = (t5 != t5[1])
-        h5 = sec("5", high)
-        l5 = sec("5", low)
-        conf5 = sec("5", barstate.isconfirmed)
-        // CODE POLICY — always gate session logic with inSess()
         if inSearch5 and newBar5
-            // CODE POLICY — pattern logic must use confirmOn() for TF
-            bullFvg = confirmOn("5", l5[1] > h5[2])
+            bullFvg = l5[1] > h5[2]
+            bearFvg = h5[1] < l5[2]
             if bullFvg
-                topB := l5[1]
-                botB := h5[2]
-                tB := t5
+                tB   := request.security(syminfo.tickerid, "5", time,    gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+                topB := request.security(syminfo.tickerid, "5", low[1],  gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+                botB := request.security(syminfo.tickerid, "5", high[2], gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
                 if not na(topS)
                     overTop = math.min(topB, topS)
                     overBot = math.max(botB, botS)
                     if overTop > overBot
                         id = nextBprId
                         nextBprId += 1
-                        make_bpr(tB, overTop, overBot, id)
-            bearFvg = confirmOn("5", h5[1] < l5[2])
+                        tStart = math.min(tB, tS)
+                        make_bpr(tStart, overTop, overBot, id)
             if bearFvg
-                topS := l5[2]
-                botS := h5[1]
-                tS := t5
+                tS   := request.security(syminfo.tickerid, "5", time,    gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+                topS := request.security(syminfo.tickerid, "5", low[2],  gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+                botS := request.security(syminfo.tickerid, "5", high[1], gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
                 if not na(topB)
                     overTop = math.min(topB, topS)
                     overBot = math.max(botB, botS)
                     if overTop > overBot
                         id = nextBprId
                         nextBprId += 1
-                        make_bpr(tS, overTop, overBot, id)
+                        tStart = math.min(tB, tS)
+                        make_bpr(tStart, overTop, overBot, id)
         update_live_styles()
-        //--- Preview logic
-        if pvOn
-            tPv = sec(pvTf, time)
-            newPv = (tPv != tPv[1])
-            hPv = sec(pvTf, high)
-            lPv = sec(pvTf, low)
-            confPv = sec(pvTf, barstate.isconfirmed)
-            if newPv
-                bullPv = confirmOn(pvTf, lPv[1] > hPv[2])
-                if bullPv
-                    pvTopB := lPv[1]
-                    pvBotB := hPv[2]
-                    pvTB := tPv
-                    if not na(pvTopS)
-                        overTop = math.min(pvTopB, pvTopS)
-                        overBot = math.max(pvBotB, pvBotS)
-                        if overTop > overBot
-                            make_preview_bpr(pvTB, overTop, overBot)
-                bearPv = confirmOn(pvTf, hPv[1] < lPv[2])
-                if bearPv
-                    pvTopS := lPv[2]
-                    pvBotS := hPv[1]
-                    pvTS := tPv
-                    if not na(pvTopB)
-                        overTop = math.min(pvTopB, pvTopS)
-                        overBot = math.max(pvBotB, pvBotS)
-                        if overTop > overBot
-                            make_preview_bpr(pvTS, overTop, overBot)
-            update_preview_styles()
-        else
-            if array.size(pvBoxes) > 0
-                reset_preview()
-                pvTopB := na
-                pvBotB := na
-                pvTB := na
-                pvTopS := na
-                pvBotS := na
-                pvTS := na
+    //--- Preview logic (always scans, no session gates)
+    if pvOn
+        tPv = request.security(syminfo.tickerid, pvTf, time, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+        hPv = request.security(syminfo.tickerid, pvTf, high, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+        lPv = request.security(syminfo.tickerid, pvTf, low,  gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+        closePv = request.security(syminfo.tickerid, pvTf, close, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+        newPv = (tPv != tPv[1])
+        // --- Mitigation check for preview BPRs
+        if newPv and array.size(pvBoxes) > 0
+            i = 0
+            while i < array.size(pvBoxes)
+                top = getFloat(pvTops, i)
+                bot = getFloat(pvBots, i)
+                // Remove if close beyond either boundary (mitigated)
+                if not na(top) and not na(bot) and ((closePv > top) or (closePv < bot))
+                    safeDelBox(getBox(pvBoxes, i))
+                    safeDelLine(getLine(pvLines, i))
+                    safeDelLabel(getLabel(pvLabels, i))
+                    array.remove(pvBoxes, i)
+                    array.remove(pvLines, i)
+                    array.remove(pvLabels, i)
+                    array.remove(pvTops, i)
+                    array.remove(pvBots, i)
+                    array.remove(pvTimes, i)
+                    // do NOT increment i, as arrays shift down
+                else
+                    i += 1
+        // --- BPR detection
+        if newPv
+            bullPv = lPv[1] > hPv[2]
+            bearPv = hPv[1] < lPv[2]
+            if bullPv
+                pvTB   := request.security(syminfo.tickerid, pvTf, time,    gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+                pvTopB := request.security(syminfo.tickerid, pvTf, low[1],  gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+                pvBotB := request.security(syminfo.tickerid, pvTf, high[2], gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+                if not na(pvTopS)
+                    overTop = math.min(pvTopB, pvTopS)
+                    overBot = math.max(pvBotB, pvBotS)
+                    if overTop > overBot
+                        tStart = math.min(pvTB, pvTS)
+                        make_preview_bpr(tStart, overTop, overBot)
+            if bearPv
+                pvTS   := request.security(syminfo.tickerid, pvTf, time,    gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+                pvTopS := request.security(syminfo.tickerid, pvTf, low[2],  gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+                pvBotS := request.security(syminfo.tickerid, pvTf, high[1], gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+                if not na(pvTopB)
+                    overTop = math.min(pvTopB, pvTopS)
+                    overBot = math.max(pvBotB, pvBotS)
+                    if overTop > overBot
+                        tStart = math.min(pvTB, pvTS)
+                        make_preview_bpr(tStart, overTop, overBot)
+        // Enforce FIFO so only N survivors remain
+        while array.size(pvBoxes) > pvN
+            safeDelBox(array.shift(pvBoxes))
+            safeDelLine(array.shift(pvLines))
+            safeDelLabel(array.shift(pvLabels))
+            array.shift(pvTops)
+            array.shift(pvBots)
+            array.shift(pvTimes)
+        update_preview_styles()
