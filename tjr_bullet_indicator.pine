@@ -299,12 +299,13 @@ if barstate.isnew
         update_live_styles()
     //--- Preview logic (always scans, no session gates)
     if pvOn
-        tPv = sec(pvTf, time)
-        hPv = sec(pvTf, high)
-        lPv = sec(pvTf, low)
-        cPv = sec(pvTf, close)
-        bullFVG = lPv[1] > hPv[2]
-        bearFVG = hPv[1] < lPv[2]
+        tPv   = request.security(syminfo.tickerid, pvTf, time,    gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+        hPv   = request.security(syminfo.tickerid, pvTf, high,    gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+        lPv   = request.security(syminfo.tickerid, pvTf, low,     gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+        cPv   = request.security(syminfo.tickerid, pvTf, close,   gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+        // HTF event flags (confirmed only):
+        bullFVG = request.security(syminfo.tickerid, pvTf, barstate.isconfirmed and low[1] > high[2], gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+        bearFVG = request.security(syminfo.tickerid, pvTf, barstate.isconfirmed and high[1] < low[2],  gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
         newBull = bullFVG and not bullFVG[1]
         newBear = bearFVG and not bearFVG[1]
         if newBull
@@ -325,7 +326,8 @@ if barstate.isnew
         while i < array.size(pvBoxes)
             top = getFloat(pvTops, i)
             bot = getFloat(pvBots, i)
-            if (cPv > top) or (cPv < bot)
+            tC  = getInt(pvTimes, i)
+            if not na(top) and not na(bot) and (tPv > tC) and ((cPv > top) or (cPv < bot))
                 safeDelBox(getBox(pvBoxes, i))
                 safeDelLine(getLine(pvLines, i))
                 safeDelLabel(getLabel(pvLabels, i))
