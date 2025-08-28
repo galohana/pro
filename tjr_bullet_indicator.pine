@@ -58,14 +58,19 @@ HHMM(strT) =>
     m = int(str.tonumber((array.size(parts) > 1) ? array.get(parts, 1) : "0"))
     str.tostring(h, "00") + str.tostring(m, "00")
 
+// Adds one minute to an HH:MM string and wraps hour at 24
 HHMMplus1(strT) =>
     parts = str.split(strT, ":")
     h = int(str.tonumber((array.size(parts) > 0) ? array.get(parts, 0) : "0"))
     m = int(str.tonumber((array.size(parts) > 1) ? array.get(parts, 1) : "0"))
     m += 1
     if m == 60
+        // minute overflow: reset minutes and advance the hour
         m := 0
         h += 1
+    // wrap hour to 0 when reaching 24 for next-day rollover
+    h := h % 24
+    // return formatted time string using wrapped hour value
     str.tostring(h, "00") + str.tostring(m, "00")
 
 tfMinutes(tf) =>
