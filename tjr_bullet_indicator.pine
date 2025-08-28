@@ -100,6 +100,7 @@ var pv_fvg_sides = array.new_int()
 var pv_fvg_times = array.new_int()
 
 var hideIds = array.new_int()
+var bool inDisplayTF = false
 
 //------------------- UTILITIES -------------------//
 reset_live() =>
@@ -134,26 +135,25 @@ pvFill = color.new(bprColor, 40)
 
 //------------------- BUILDERS -------------------//
 make_bpr(_tStart, _top, _bot, _id) =>
-    if array.includes(hideIds, _id)
-        return
-    visB  = inDisplayTF ? fillA : color(na)
-    visBr = inDisplayTF ? color.black : color(na)
-    b = box.new(_tStart, _top, _tStart + 5 * 60000, _bot, xloc=xloc.bar_time, extend=extend.right, border_color=visBr, bgcolor=visB)
-    mid = (_top + _bot) / 2
-    [lx, ly, lsz] = placeLabel(_top, _bot, _tStart)
-    visLn = inDisplayTF and midlineOn ? color.black : color(na)
-    ln = line.new(_tStart, mid, _tStart + 5 * 60000, mid, xloc=xloc.bar_time, extend=extend.right, color=visLn, style=line.style_dashed)
-    visTxt = inDisplayTF ? color.black : color(na)
-    lb = label.new(lx, ly, "BPR #" + str.tostring(_id), xloc=xloc.bar_time, yloc=yloc.price, style=label.style_label_left, size=lsz, textcolor=visTxt, color=color(na))
-    array.push(ids, _id)
-    array.push(liveBoxes, b)
-    array.push(liveLines, ln)
-    array.push(liveLabels, lb)
-    while array.size(liveBoxes) > 500
-        safeDelBox(array.shift(liveBoxes))
-        safeDelLine(array.shift(liveLines))
-        safeDelLabel(array.shift(liveLabels))
-        array.shift(ids)
+    if not array.includes(hideIds, _id)
+        visB  = inDisplayTF ? fillA : color(na)
+        visBr = inDisplayTF ? color.black : color(na)
+        b = box.new(_tStart, _top, _tStart + 5 * 60000, _bot, xloc=xloc.bar_time, extend=extend.right, border_color=visBr, bgcolor=visB)
+        mid = (_top + _bot) / 2
+        [lx, ly, lsz] = placeLabel(_top, _bot, _tStart)
+        visLn = inDisplayTF and midlineOn ? color.black : color(na)
+        ln = line.new(_tStart, mid, _tStart + 5 * 60000, mid, xloc=xloc.bar_time, extend=extend.right, color=visLn, style=line.style_dashed)
+        visTxt = inDisplayTF ? color.black : color(na)
+        lb = label.new(lx, ly, "BPR #" + str.tostring(_id), xloc=xloc.bar_time, yloc=yloc.price, style=label.style_label_left, size=lsz, textcolor=visTxt, color=color(na))
+        array.push(ids, _id)
+        array.push(liveBoxes, b)
+        array.push(liveLines, ln)
+        array.push(liveLabels, lb)
+        while array.size(liveBoxes) > 500
+            safeDelBox(array.shift(liveBoxes))
+            safeDelLine(array.shift(liveLines))
+            safeDelLabel(array.shift(liveLabels))
+            array.shift(ids)
 
 make_preview_bpr(_tStart, _top, _bot) =>
     tfMs = tfMinutes(pvTf) * 60000
