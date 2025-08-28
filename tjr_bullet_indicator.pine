@@ -215,7 +215,7 @@ sessDisplay = HHMM(displayStart) + "-" + HHMM(displayEnd)
 sessDelete  = HHMM(deleteAt)     + "-" + HHMMplus1(deleteAt)
 TZ = "Asia/Jerusalem"
 inSearch5   = inSess("5", sessSearch, TZ)
-inDisplayTF = inSess(timeframe.period, sessDisplay, TZ)
+inDisplayTF := inSess(timeframe.period, sessDisplay, TZ)
 tDel        = time("1", sessDelete, TZ)
 cleanup     = not na(tDel) and na(tDel[1])
 
