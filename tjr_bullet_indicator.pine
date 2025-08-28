@@ -233,7 +233,7 @@ if onOff
             array.push(live_fvg_times, t5)
         last_side = array.size(live_fvg_sides) > 0 ? array.get(live_fvg_sides, array.size(live_fvg_sides) - 1) : na
         if last_side == 1 and array.size(live_fvg_sides) > 1
-            for i = array.size(live_fvg_sides) - 2 to 0 by -1
+            for i = array.size(live_fvg_sides) - 2 to 0
                 if array.get(live_fvg_sides, i) == -1
                     bull_high = array.get(live_fvg_highs, array.size(live_fvg_highs) - 1)
                     bull_low  = array.get(live_fvg_lows,  array.size(live_fvg_lows) - 1)
@@ -250,7 +250,7 @@ if onOff
                         make_bpr(tStart, overTop, overBot, id)
                     break
         if last_side == -1 and array.size(live_fvg_sides) > 1
-            for i = array.size(live_fvg_sides) - 2 to 0 by -1
+            for i = array.size(live_fvg_sides) - 2 to 0
                 if array.get(live_fvg_sides, i) == 1
                     bear_high = array.get(live_fvg_highs, array.size(live_fvg_highs) - 1)
                     bear_low  = array.get(live_fvg_lows,  array.size(live_fvg_lows) - 1)
@@ -288,7 +288,7 @@ if pvOn
         array.push(pv_fvg_times, tPv)
     last_side_pv = array.size(pv_fvg_sides) > 0 ? array.get(pv_fvg_sides, array.size(pv_fvg_sides) - 1) : na
     if last_side_pv == 1 and array.size(pv_fvg_sides) > 1
-        for i = array.size(pv_fvg_sides) - 2 to 0 by -1
+        for i = array.size(pv_fvg_sides) - 2 to 0
             if array.get(pv_fvg_sides, i) == -1
                 bull_high = array.get(pv_fvg_highs, array.size(pv_fvg_highs) - 1)
                 bull_low  = array.get(pv_fvg_lows,  array.size(pv_fvg_lows) - 1)
@@ -303,7 +303,7 @@ if pvOn
                     make_preview_bpr(tStart, overTop, overBot)
                 break
     if last_side_pv == -1 and array.size(pv_fvg_sides) > 1
-        for i = array.size(pv_fvg_sides) - 2 to 0 by -1
+        for i = array.size(pv_fvg_sides) - 2 to 0
             if array.get(pv_fvg_sides, i) == 1
                 bear_high = array.get(pv_fvg_highs, array.size(pv_fvg_highs) - 1)
                 bear_low  = array.get(pv_fvg_lows,  array.size(pv_fvg_lows) - 1)
