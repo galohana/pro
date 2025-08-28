@@ -97,6 +97,8 @@ var pv_fvg_lows = array.new_float()
 var pv_fvg_sides = array.new_int()
 var pv_fvg_times = array.new_int()
 
+var hideIds = array.new_int()
+
 //------------------- UTILITIES -------------------//
 reset_live() =>
     for i = 0 to array.size(liveBoxes) - 1
@@ -133,6 +135,8 @@ pvFill = color.new(bprColor, 40)
 
 //------------------- BUILDERS -------------------//
 make_bpr(_tStart, _top, _bot, _id) =>
+    if array.includes(hideIds, _id)
+        return
     b = box.new(_tStart, _top, _tStart + 5 * 60000, _bot, xloc=xloc.bar_time, extend=extend.right, border_color=color.black, bgcolor=fillA)
     mid = (_top + _bot) / 2
     [lx, ly, lsz] = placeLabel(_top, _bot, _tStart, false)
@@ -163,7 +167,15 @@ make_preview_bpr(_tStart, _top, _bot) =>
     array.push(pvTimes, _tStart)
 
 update_live_styles() =>
-    for i = 0 to array.size(liveBoxes) - 1
+    i = 0
+    while i < array.size(liveBoxes)
+        id = getInt(ids, i)
+        if array.includes(hideIds, id)
+            safeDelBox(array.remove(liveBoxes, i))
+            safeDelLine(array.remove(liveLines, i))
+            safeDelLabel(array.remove(liveLabels, i))
+            array.remove(ids, i)
+            continue
         b = getBox(liveBoxes, i)
         ln = getLine(liveLines, i)
         lb = getLabel(liveLabels, i)
@@ -175,6 +187,7 @@ update_live_styles() =>
             label.set_textcolor(lb, color.black)
             label.set_color(lb, color(na))
             label.set_size(lb, labelSizeFromStr(labelOpt))
+        i += 1
 
 update_preview_styles() =>
     for i = 0 to array.size(pvBoxes) - 1
@@ -209,6 +222,16 @@ if barstate.isnew
             reset_live()
         if not pvOn and (array.size(pvBoxes) > 0 or array.size(pvLines) > 0 or array.size(pvLabels) > 0)
             reset_preview()
+    array.clear(hideIds)
+    id1 = int(str.tonumber(str.trim(hideId1)))
+    if not na(id1) and not array.includes(hideIds, id1)
+        array.push(hideIds, id1)
+    id2 = int(str.tonumber(str.trim(hideId2)))
+    if not na(id2) and not array.includes(hideIds, id2)
+        array.push(hideIds, id2)
+    id3 = int(str.tonumber(str.trim(hideId3)))
+    if not na(id3) and not array.includes(hideIds, id3)
+        array.push(hideIds, id3)
 
 //--- LIVE logic (5min session-gated, זיהוי bpr מדויק)
 if onOff
