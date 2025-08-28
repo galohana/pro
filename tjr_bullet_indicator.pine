@@ -2,24 +2,24 @@
 indicator("BPR [TakingProphets]", overlay=true, max_bars_back=500, max_boxes_count=500, max_lines_count=500, max_labels_count=500)
 
 //----------------- UTILITIES & GUARDRAILS -----------------//
-safeDelBox(x) =>
+safeDelBox(box x) =>
     if not na(x)
         box.delete(x)
 
-safeDelLine(x) =>
+safeDelLine(line x) =>
     if not na(x)
         line.delete(x)
 
-safeDelLabel(x) =>
+safeDelLabel(label x) =>
     if not na(x)
         label.delete(x)
 
-getBox(a, i) => (i >= 0 and i < array.size(a)) ? array.get(a, i) : na
-getLine(a, i) => (i >= 0 and i < array.size(a)) ? array.get(a, i) : na
-getLabel(a, i) => (i >= 0 and i < array.size(a)) ? array.get(a, i) : na
-getFloat(a, i) => (i >= 0 and i < array.size(a)) ? array.get(a, i) : na
-getInt(a, i) => (i >= 0 and i < array.size(a)) ? array.get(a, i) : na
-getBool(a, i) => (i >= 0 and i < array.size(a)) ? array.get(a, i) : bool(na)
+getBox(a, i)   => (i >= 0 and i < array.size(a)) ? array.get(a, i) : box(na)
+getLine(a, i)  => (i >= 0 and i < array.size(a)) ? array.get(a, i) : line(na)
+getLabel(a, i) => (i >= 0 and i < array.size(a)) ? array.get(a, i) : label(na)
+getFloat(a, i) => (i >= 0 and i < array.size(a)) ? array.get(a, i) : float(na)
+getInt(a, i)   => (i >= 0 and i < array.size(a)) ? array.get(a, i) : int(na)
+getBool(a, i)  => (i >= 0 and i < array.size(a)) ? array.get(a, i) : bool(na)
 inSess(tf, s, tz) => not na(time(tf, s, tz))
 
 //-------------------- INPUTS --------------------//
