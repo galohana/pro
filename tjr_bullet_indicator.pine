@@ -1,6 +1,5 @@
 //@version=6
-indicator("BPR [TakingProphets]", overlay=true, max_bars_back=500,
-    max_boxes_count=500, max_lines_count=500, max_labels_count=500)
+indicator("BPR [TakingProphets]", overlay=true, max_bars_back=500, max_boxes_count=500, max_lines_count=500, max_labels_count=500)
 
 //----------------- UTILITIES & GUARDRAILS -----------------//
 safeDelBox(x) =>
