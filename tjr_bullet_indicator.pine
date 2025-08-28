@@ -86,9 +86,6 @@ var liveLabels = array.new_label()
 var pvBoxes = array.new_box()
 var pvLines = array.new_line()
 var pvLabels = array.new_label()
-var pvTops = array.new_float()
-var pvBots = array.new_float()
-var pvTimes = array.new_int()
 
 // For live session FVGs
 var live_fvg_highs = array.new_float()
@@ -127,9 +124,6 @@ reset_preview() =>
     array.clear(pvBoxes)
     array.clear(pvLines)
     array.clear(pvLabels)
-    array.clear(pvTops)
-    array.clear(pvBots)
-    array.clear(pvTimes)
     array.clear(pv_fvg_highs)
     array.clear(pv_fvg_lows)
     array.clear(pv_fvg_sides)
@@ -175,9 +169,6 @@ make_preview_bpr(_tStart, _top, _bot) =>
     array.push(pvBoxes, b)
     array.push(pvLines, ln)
     array.push(pvLabels, lb)
-    array.push(pvTops, _top)
-    array.push(pvBots, _bot)
-    array.push(pvTimes, _tStart)
 
 update_live_styles() =>
     i = 0
@@ -379,7 +370,4 @@ if pvOn
         safeDelBox(array.shift(pvBoxes))
         safeDelLine(array.shift(pvLines))
         safeDelLabel(array.shift(pvLabels))
-        array.shift(pvTops)
-        array.shift(pvBots)
-        array.shift(pvTimes)
     update_preview_styles()
