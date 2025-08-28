@@ -45,7 +45,7 @@ pvN    = input.int(4, "Show last N", minval=0, maxval=10, group=groupBPR, inline
 //------------------ HELPERS ------------------//
 labelSizeFromStr(s) => s == "Small" ? size.small : s == "Normal" ? size.normal : size.tiny
 
-placeLabel(top, bot, t0, isPreview) =>
+placeLabel(top, bot, t0) =>
     padY = math.max((top - bot) * 0.02, syminfo.mintick * 2)
     minH = syminfo.mintick * (labelOpt == "Tiny" ? 6 : labelOpt == "Small" ? 10 : 14)
     y = (top - bot) >= minH ? (top - padY) : (top + padY)
@@ -141,7 +141,7 @@ make_bpr(_tStart, _top, _bot, _id) =>
     visBr = inDisplayTF ? color.black : color(na)
     b = box.new(_tStart, _top, _tStart + 5 * 60000, _bot, xloc=xloc.bar_time, extend=extend.right, border_color=visBr, bgcolor=visB)
     mid = (_top + _bot) / 2
-    [lx, ly, lsz] = placeLabel(_top, _bot, _tStart, false)
+    [lx, ly, lsz] = placeLabel(_top, _bot, _tStart)
     visLn = inDisplayTF and midlineOn ? color.black : color(na)
     ln = line.new(_tStart, mid, _tStart + 5 * 60000, mid, xloc=xloc.bar_time, extend=extend.right, color=visLn, style=line.style_dashed)
     visTxt = inDisplayTF ? color.black : color(na)
@@ -162,7 +162,7 @@ make_preview_bpr(_tStart, _top, _bot) =>
     visBr = inDisplayTF ? color.black : color(na)
     b = box.new(_tStart, _top, _tStart + tfMs, _bot, xloc=xloc.bar_time, extend=extend.right, border_color=visBr, bgcolor=visB)
     mid = (_top + _bot) / 2
-    [lx, ly, lsz] = placeLabel(_top, _bot, _tStart, true)
+    [lx, ly, lsz] = placeLabel(_top, _bot, _tStart)
     visLn = inDisplayTF and midlineOn ? color.black : color(na)
     ln = line.new(_tStart, mid, _tStart + tfMs, mid, xloc=xloc.bar_time, extend=extend.right, color=visLn, style=line.style_dashed)
     visTxt = inDisplayTF ? color.black : color(na)
