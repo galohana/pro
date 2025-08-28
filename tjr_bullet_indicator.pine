@@ -2,17 +2,9 @@
 indicator("BPR [TakingProphets]", overlay=true, max_bars_back=500, max_boxes_count=500, max_lines_count=500, max_labels_count=500)
 
 //----------------- UTILITIES & GUARDRAILS -----------------//
-safeDelBox(box x) =>
-    if not na(x)
-        box.delete(x)
-
-safeDelLine(line x) =>
-    if not na(x)
-        line.delete(x)
-
-safeDelLabel(label x) =>
-    if not na(x)
-        label.delete(x)
+safeDelBox(box x) => if not na(x) box.delete(x)
+safeDelLine(line x) => if not na(x) line.delete(x)
+safeDelLabel(label x) => if not na(x) label.delete(x)
 
 getBox(a, i)   => (i >= 0 and i < array.size(a)) ? array.get(a, i) : box(na)
 getLine(a, i)  => (i >= 0 and i < array.size(a)) ? array.get(a, i) : line(na)
@@ -26,6 +18,7 @@ inSess(tf, s, tz) => not na(time(tf, s, tz))
 groupBPR = "BPR"
 onOff = input.bool(true, "On/Off", group=groupBPR, inline="BPR_HDR")
 bprColor = input.color(color.green, "Color", group=groupBPR, inline="BPR_HDR")
+opacityPct = input.int(30, "Opacity (0-100)", minval=0, maxval=100, group=groupBPR, inline="BPR_HDR")
 midlineOn = input.bool(true, "Midline", group=groupBPR, inline="BPR_HDR")
 labelOpt = input.string("Tiny", "Label size", options=["Tiny","Small","Normal"], group=groupBPR, inline="BPR_HDR")
 
@@ -44,8 +37,7 @@ pvTf   = input.string("30", "Source TF", options=["15","30","60","240","D"], gro
 pvN    = input.int(4, "Show last N", minval=0, maxval=10, group=groupBPR, inline="BPR_PV")
 
 //------------------ HELPERS ------------------//
-labelSizeFromStr(s) =>
-    s == "Small" ? size.small : s == "Normal" ? size.normal : size.tiny
+labelSizeFromStr(s) => s == "Small" ? size.small : s == "Normal" ? size.normal : size.tiny
 
 placeLabel(top, bot, t0, isPreview) =>
     padY = math.max((top - bot) * 0.02, syminfo.mintick * 2)
@@ -130,12 +122,12 @@ reset_preview() =>
     array.clear(pv_fvg_sides)
     array.clear(pv_fvg_times)
 
-bprFill = bprColor
+fillA  = color.new(bprColor, opacityPct)
 pvFill = color.new(bprColor, 40)
 
 //------------------- BUILDERS -------------------//
 make_bpr(_tStart, _top, _bot, _id) =>
-    b = box.new(_tStart, _top, _tStart + 5 * 60000, _bot, xloc=xloc.bar_time, extend=extend.right, border_color=color.black, bgcolor=bprFill)
+    b = box.new(_tStart, _top, _tStart + 5 * 60000, _bot, xloc=xloc.bar_time, extend=extend.right, border_color=color.black, bgcolor=fillA)
     mid = (_top + _bot) / 2
     [lx, ly, lsz] = placeLabel(_top, _bot, _tStart, false)
     ln = line.new(_tStart, mid, _tStart + 5 * 60000, mid, xloc=xloc.bar_time, extend=extend.right, color=midlineOn ? color.black : color(na), style=line.style_dashed)
@@ -170,7 +162,7 @@ update_live_styles() =>
         ln = getLine(liveLines, i)
         lb = getLabel(liveLabels, i)
         if not na(b)
-            box.set_bgcolor(b, bprFill)
+            box.set_bgcolor(b, fillA)
         if not na(ln)
             line.set_color(ln, midlineOn ? color.black : color(na))
         if not na(lb)
@@ -217,6 +209,7 @@ if onOff
     t5   = request.security(syminfo.tickerid, "5", time, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
     h5   = request.security(syminfo.tickerid, "5", high, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
     l5   = request.security(syminfo.tickerid, "5", low,  gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+    c5   = request.security(syminfo.tickerid, "5", close, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
     newBar5 = (t5 != t5[1])
     bullFvg = l5 > h5[2]
     bearFvg = h5 < l5[2]
@@ -231,16 +224,26 @@ if onOff
             array.push(live_fvg_lows, l5[2])
             array.push(live_fvg_sides, -1)
             array.push(live_fvg_times, t5)
+        // invalidate by close-only (wick OK): bull invalid if close <= lower bound; bear invalid if close >= upper bound
+        i=0
+        while i<array.size(live_fvg_sides)
+            s = array.get(live_fvg_sides,i)
+            hi= array.get(live_fvg_highs,i), lo=array.get(live_fvg_lows,i)
+            inv = (s== 1 and c5 <= hi) or (s==-1 and c5 >= lo)
+            if inv
+                array.remove(live_fvg_highs,i), array.remove(live_fvg_lows,i), array.remove(live_fvg_sides,i), array.remove(live_fvg_times,i)
+            else
+                i += 1
         last_side = array.size(live_fvg_sides) > 0 ? array.get(live_fvg_sides, array.size(live_fvg_sides) - 1) : na
         if last_side == 1 and array.size(live_fvg_sides) > 1
-            for i = array.size(live_fvg_sides) - 2 to 0
-                if array.get(live_fvg_sides, i) == -1
+            for k = array.size(live_fvg_sides) - 2 to 0
+                if array.get(live_fvg_sides, k) == -1
                     bull_high = array.get(live_fvg_highs, array.size(live_fvg_highs) - 1)
                     bull_low  = array.get(live_fvg_lows,  array.size(live_fvg_lows) - 1)
                     bull_time = array.get(live_fvg_times, array.size(live_fvg_times) - 1)
-                    bear_high = array.get(live_fvg_highs, i)
-                    bear_low  = array.get(live_fvg_lows,  i)
-                    bear_time = array.get(live_fvg_times, i)
+                    bear_high = array.get(live_fvg_highs, k)
+                    bear_low  = array.get(live_fvg_lows,  k)
+                    bear_time = array.get(live_fvg_times, k)
                     overTop = math.min(bull_low, bear_low)
                     overBot = math.max(bull_high, bear_high)
                     if overTop > overBot
@@ -250,14 +253,14 @@ if onOff
                         make_bpr(tStart, overTop, overBot, id)
                     break
         if last_side == -1 and array.size(live_fvg_sides) > 1
-            for i = array.size(live_fvg_sides) - 2 to 0
-                if array.get(live_fvg_sides, i) == 1
+            for k = array.size(live_fvg_sides) - 2 to 0
+                if array.get(live_fvg_sides, k) == 1
                     bear_high = array.get(live_fvg_highs, array.size(live_fvg_highs) - 1)
                     bear_low  = array.get(live_fvg_lows,  array.size(live_fvg_lows) - 1)
                     bear_time = array.get(live_fvg_times, array.size(live_fvg_times) - 1)
-                    bull_high = array.get(live_fvg_highs, i)
-                    bull_low  = array.get(live_fvg_lows,  i)
-                    bull_time = array.get(live_fvg_times, i)
+                    bull_high = array.get(live_fvg_highs, k)
+                    bull_low  = array.get(live_fvg_lows,  k)
+                    bull_time = array.get(live_fvg_times, k)
                     overTop = math.min(bear_low, bull_low)
                     overBot = math.max(bear_high, bull_high)
                     if overTop > overBot
@@ -286,16 +289,26 @@ if pvOn
         array.push(pv_fvg_lows, lPv[2])
         array.push(pv_fvg_sides, -1)
         array.push(pv_fvg_times, tPv)
+    // invalidate by close-only (wick OK): bull invalid if close <= lower bound; bear invalid if close >= upper bound
+    j=0
+    while j<array.size(pv_fvg_sides)
+        s = array.get(pv_fvg_sides,j)
+        hi= array.get(pv_fvg_highs,j), lo=array.get(pv_fvg_lows,j)
+        inv = (s== 1 and cPv <= hi) or (s==-1 and cPv >= lo)
+        if inv
+            array.remove(pv_fvg_highs,j), array.remove(pv_fvg_lows,j), array.remove(pv_fvg_sides,j), array.remove(pv_fvg_times,j)
+        else
+            j += 1
     last_side_pv = array.size(pv_fvg_sides) > 0 ? array.get(pv_fvg_sides, array.size(pv_fvg_sides) - 1) : na
     if last_side_pv == 1 and array.size(pv_fvg_sides) > 1
-        for i = array.size(pv_fvg_sides) - 2 to 0
-            if array.get(pv_fvg_sides, i) == -1
+        for k = array.size(pv_fvg_sides) - 2 to 0
+            if array.get(pv_fvg_sides, k) == -1
                 bull_high = array.get(pv_fvg_highs, array.size(pv_fvg_highs) - 1)
                 bull_low  = array.get(pv_fvg_lows,  array.size(pv_fvg_lows) - 1)
                 bull_time = array.get(pv_fvg_times, array.size(pv_fvg_times) - 1)
-                bear_high = array.get(pv_fvg_highs, i)
-                bear_low  = array.get(pv_fvg_lows,  i)
-                bear_time = array.get(pv_fvg_times, i)
+                bear_high = array.get(pv_fvg_highs, k)
+                bear_low  = array.get(pv_fvg_lows,  k)
+                bear_time = array.get(pv_fvg_times, k)
                 overTop = math.min(bull_low, bear_low)
                 overBot = math.max(bull_high, bear_high)
                 if overTop > overBot
@@ -303,14 +316,14 @@ if pvOn
                     make_preview_bpr(tStart, overTop, overBot)
                 break
     if last_side_pv == -1 and array.size(pv_fvg_sides) > 1
-        for i = array.size(pv_fvg_sides) - 2 to 0
-            if array.get(pv_fvg_sides, i) == 1
+        for k = array.size(pv_fvg_sides) - 2 to 0
+            if array.get(pv_fvg_sides, k) == 1
                 bear_high = array.get(pv_fvg_highs, array.size(pv_fvg_highs) - 1)
                 bear_low  = array.get(pv_fvg_lows,  array.size(pv_fvg_lows) - 1)
                 bear_time = array.get(pv_fvg_times, array.size(pv_fvg_times) - 1)
-                bull_high = array.get(pv_fvg_highs, i)
-                bull_low  = array.get(pv_fvg_lows,  i)
-                bull_time = array.get(pv_fvg_times, i)
+                bull_high = array.get(pv_fvg_highs, k)
+                bull_low  = array.get(pv_fvg_lows,  k)
+                bull_time = array.get(pv_fvg_times, k)
                 overTop = math.min(bear_low, bull_low)
                 overBot = math.max(bear_high, bull_high)
                 if overTop > overBot
