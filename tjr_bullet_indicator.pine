@@ -2,9 +2,9 @@
 indicator("BPR [TakingProphets]", overlay=true, max_bars_back=500, max_boxes_count=500, max_lines_count=500, max_labels_count=500)
 
 //----------------- UTILITIES & GUARDRAILS -----------------//
-safeDelBox(box x) => if not na(x) box.delete(x)
-safeDelLine(line x) => if not na(x) line.delete(x)
-safeDelLabel(label x) => if not na(x) label.delete(x)
+safeDelBox(x) => if not na(x) box.delete(x)
+safeDelLine(x) => if not na(x) line.delete(x)
+safeDelLabel(x) => if not na(x) label.delete(x)
 
 getBox(a, i)   => (i >= 0 and i < array.size(a)) ? array.get(a, i) : box(na)
 getLine(a, i)  => (i >= 0 and i < array.size(a)) ? array.get(a, i) : line(na)
