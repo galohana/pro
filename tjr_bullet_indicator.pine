@@ -2,36 +2,17 @@
 indicator("BPR [TakingProphets]", overlay=true, max_bars_back=500, max_boxes_count=500, max_lines_count=500, max_labels_count=500)
 
 //----------------- UTILITIES & GUARDRAILS -----------------//
-// CODE POLICY — do not direct-delete or set fields on objects/arrays; always use safeDel* or typed getters helpers.
+safeDelBox(x) => if not na(x) box.delete(x)
+safeDelLine(x) => if not na(x) line.delete(x)
+safeDelLabel(x) => if not na(x) label.delete(x)
 
-// Safe object deletion (never delete na)
-safeDelBox(x) =>
-    if not na(x)
-        box.delete(x)
-safeDelLine(x) =>
-    if not na(x)
-        line.delete(x)
-safeDelLabel(x) =>
-    if not na(x)
-        label.delete(x)
-
-// Typed, bounds-safe getters
-getBox(box[] a, int i) =>
-    (i >= 0 and i < array.size(a)) ? array.get(a, i) : na
-getLine(line[] a, int i) =>
-    (i >= 0 and i < array.size(a)) ? array.get(a, i) : na
-getLabel(label[] a, int i) =>
-    (i >= 0 and i < array.size(a)) ? array.get(a, i) : na
-getFloat(float[] a, int i) =>
-    (i >= 0 and i < array.size(a)) ? array.get(a, i) : na
-getInt(int[] a, int i) =>
-    (i >= 0 and i < array.size(a)) ? array.get(a, i) : na
-getBool(bool[] a, int i) =>
-    (i >= 0 and i < array.size(a)) ? array.get(a, i) : bool(na)
-
-// Session presence helper: only use this for session checks
-inSess(tf, s, tz) =>
-    not na(time(tf, s, tz))
+getBox(a, i) => (i >= 0 and i < array.size(a)) ? array.get(a, i) : na
+getLine(a, i) => (i >= 0 and i < array.size(a)) ? array.get(a, i) : na
+getLabel(a, i) => (i >= 0 and i < array.size(a)) ? array.get(a, i) : na
+getFloat(a, i) => (i >= 0 and i < array.size(a)) ? array.get(a, i) : na
+getInt(a, i) => (i >= 0 and i < array.size(a)) ? array.get(a, i) : na
+getBool(a, i) => (i >= 0 and i < array.size(a)) ? array.get(a, i) : bool(na)
+inSess(tf, s, tz) => not na(time(tf, s, tz))
 
 //-------------------- INPUTS --------------------//
 groupBPR = "BPR"
@@ -58,10 +39,8 @@ pvN    = input.int(4, "Show last N", minval=0, maxval=10, group=groupBPR, inline
 labelSizeFromStr(s) =>
     s == "Small" ? size.small : s == "Normal" ? size.normal : size.tiny
 
-// Helper for smart label placement inside or above the box (no chart.*)
 placeLabel(top, bot, t0, isPreview) =>
     padY = math.max((top - bot) * 0.02, syminfo.mintick * 2)
-    // Minimal box height (in price ticks) required to place text inside:
     minH = syminfo.mintick * (labelOpt == "Tiny" ? 6 : labelOpt == "Small" ? 10 : 14)
     y = (top - bot) >= minH ? (top - padY) : (top + padY)
     [t0 + 30 * 1000, y, labelSizeFromStr(labelOpt)]
@@ -86,47 +65,31 @@ HHMMplus1(strT) =>
 tfMinutes(tf) =>
     tf == "D" ? 1440 : int(str.tonumber(tf))
 
-sec(tf, expr) =>
-    request.security(syminfo.tickerid, tf, expr, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
-
-sessSearch  = HHMM(searchStart)  + "-" + HHMM(searchEnd)
-sessDisplay = HHMM(displayStart) + "-" + HHMM(displayEnd)
-sessDelete  = HHMM(deleteAt)     + "-" + HHMMplus1(deleteAt)
-TZ = "Asia/Jerusalem"
-
-inSearch5   = inSess("5", sessSearch, TZ) // Only use inSess
-inDisplayTF = inSess(timeframe.period, sessDisplay, TZ)
-tDel        = time("1", sessDelete, TZ)
-cleanup     = not na(tDel) and na(tDel[1])
-
 //------------------- DATA MODEL -------------------//
-var int nextBprId = 1
-var int[] ids = array.new_int()
-var box[] liveBoxes = array.new_box()
-var line[] liveLines = array.new_line()
-var label[] liveLabels = array.new_label()
+var nextBprId = 1
+var ids = array.new_int()
+var liveBoxes = array.new_box()
+var liveLines = array.new_line()
+var liveLabels = array.new_label()
 
-var box[] pvBoxes = array.new_box()
-var line[] pvLines = array.new_line()
-var label[] pvLabels = array.new_label()
-// Preview meta for mitigation logic
-var float[] pvTops = array.new_float()
-var float[] pvBots = array.new_float()
-var int[]   pvTimes = array.new_int()
+var pvBoxes = array.new_box()
+var pvLines = array.new_line()
+var pvLabels = array.new_label()
+var pvTops = array.new_float()
+var pvBots = array.new_float()
+var pvTimes = array.new_int()
 
-var float topB = na
-var float botB = na
-var int tB = na
-var float topS = na
-var float botS = na
-var int tS = na
+// For live session FVGs
+var live_fvg_highs = array.new_float()
+var live_fvg_lows = array.new_float()
+var live_fvg_sides = array.new_int() // 1 = bull, -1 = bear
+var live_fvg_times = array.new_int()
 
-var float pvTopB = na
-var float pvBotB = na
-var int pvTB = na
-var float pvTopS = na
-var float pvBotS = na
-var int pvTS = na
+// For preview FVGs
+var pv_fvg_highs = array.new_float()
+var pv_fvg_lows = array.new_float()
+var pv_fvg_sides = array.new_int()
+var pv_fvg_times = array.new_int()
 
 //------------------- UTILITIES -------------------//
 reset_live() =>
@@ -138,6 +101,10 @@ reset_live() =>
     array.clear(liveLines)
     array.clear(liveLabels)
     array.clear(ids)
+    array.clear(live_fvg_highs)
+    array.clear(live_fvg_lows)
+    array.clear(live_fvg_sides)
+    array.clear(live_fvg_times)
 
 reset_preview() =>
     for i = 0 to array.size(pvBoxes) - 1
@@ -150,6 +117,10 @@ reset_preview() =>
     array.clear(pvTops)
     array.clear(pvBots)
     array.clear(pvTimes)
+    array.clear(pv_fvg_highs)
+    array.clear(pv_fvg_lows)
+    array.clear(pv_fvg_sides)
+    array.clear(pv_fvg_times)
 
 bprFill = bprColor
 pvFill = color.new(bprColor, 40)
@@ -165,7 +136,6 @@ make_bpr(_tStart, _top, _bot, _id) =>
     array.push(liveBoxes, b)
     array.push(liveLines, ln)
     array.push(liveLabels, lb)
-    // Enforce FIFO max objects
     while array.size(liveBoxes) > 500
         safeDelBox(array.shift(liveBoxes))
         safeDelLine(array.shift(liveLines))
@@ -185,8 +155,6 @@ make_preview_bpr(_tStart, _top, _bot) =>
     array.push(pvTops, _top)
     array.push(pvBots, _bot)
     array.push(pvTimes, _tStart)
-    // Enforce FIFO max objects (after mitigation logic)
-    // (Handled after mitigation logic in main)
 
 update_live_styles() =>
     for i = 0 to array.size(liveBoxes) - 1
@@ -194,11 +162,11 @@ update_live_styles() =>
         ln = getLine(liveLines, i)
         lb = getLabel(liveLabels, i)
         if not na(b)
-            box.set_bgcolor(b, inDisplayTF ? bprFill : color.new(color.white, 100))
+            box.set_bgcolor(b, bprFill)
         if not na(ln)
-            line.set_color(ln, inDisplayTF and midlineOn ? color.black : color(na))
+            line.set_color(ln, midlineOn ? color.black : color(na))
         if not na(lb)
-            label.set_textcolor(lb, inDisplayTF ? color.black : color(na))
+            label.set_textcolor(lb, color.black)
             label.set_color(lb, color(na))
             label.set_size(lb, labelSizeFromStr(labelOpt))
 
@@ -215,135 +183,137 @@ update_preview_styles() =>
             label.set_color(lb, color(na))
             label.set_size(lb, labelSizeFromStr(labelOpt))
 
+//------------------- SESSION & TIME -------------------//
+sessSearch  = HHMM(searchStart)  + "-" + HHMM(searchEnd)
+sessDisplay = HHMM(displayStart) + "-" + HHMM(displayEnd)
+sessDelete  = HHMM(deleteAt)     + "-" + HHMMplus1(deleteAt)
+TZ = "Asia/Jerusalem"
+inSearch5   = inSess("5", sessSearch, TZ)
+inDisplayTF = inSess(timeframe.period, sessDisplay, TZ)
+tDel        = time("1", sessDelete, TZ)
+cleanup     = not na(tDel) and na(tDel[1])
+
 //------------------- MAIN -------------------//
 if barstate.isnew
     if cleanup
         reset_live()
-        reset_preview()
         nextBprId := 1
-        topB := na
-        botB := na
-        tB := na
-        topS := na
-        botS := na
-        tS := na
-        pvTopB := na
-        pvBotB := na
-        pvTB := na
-        pvTopS := na
-        pvBotS := na
-        pvTS := na
     else
         if not onOff
             reset_live()
-            topB := na
-            botB := na
-            tB := na
-            topS := na
-            botS := na
-            tS := na
         if not pvOn and (array.size(pvBoxes) > 0 or array.size(pvLines) > 0 or array.size(pvLabels) > 0)
             reset_preview()
-            pvTopB := na
-            pvBotB := na
-            pvTB := na
-            pvTopS := na
-            pvBotS := na
-            pvTS := na
-    if onOff
-        hid1 = str.tonumber(hideId1)
-        hid2 = str.tonumber(hideId2)
-        hid3 = str.tonumber(hideId3)
-        for i = array.size(ids) - 1 to 0
-            idv = getInt(ids, i)
-            if not na(idv) and ((not na(hid1) and idv == hid1) or (not na(hid2) and idv == hid2) or (not na(hid3) and idv == hid3))
-                safeDelBox(getBox(liveBoxes, i))
-                safeDelLine(getLine(liveLines, i))
-                safeDelLabel(getLabel(liveLabels, i))
-                array.remove(liveBoxes, i)
-                array.remove(liveLines, i)
-                array.remove(liveLabels, i)
-                array.remove(ids, i)
-        //--- 5min logic (session-gated)
-        t5 = request.security(syminfo.tickerid, "5", time, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
-        h5 = request.security(syminfo.tickerid, "5", high, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
-        l5 = request.security(syminfo.tickerid, "5", low,  gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
-        newBar5 = (t5 != t5[1])
-        if inSearch5 and newBar5
-            bullFvg = l5[1] > h5[2]
-            bearFvg = h5[1] < l5[2]
-            if bullFvg
-                tB   := request.security(syminfo.tickerid, "5", time,    gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
-                topB := request.security(syminfo.tickerid, "5", low[1],  gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
-                botB := request.security(syminfo.tickerid, "5", high[2], gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
-                if not na(topS)
-                    overTop = math.min(topB, topS)
-                    overBot = math.max(botB, botS)
+
+//--- LIVE logic (5min session-gated, זיהוי bpr מדויק)
+if onOff
+    t5   = request.security(syminfo.tickerid, "5", time, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+    h5   = request.security(syminfo.tickerid, "5", high, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+    l5   = request.security(syminfo.tickerid, "5", low,  gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+    newBar5 = (t5 != t5[1])
+    bullFvg = l5 > h5[2]
+    bearFvg = h5 < l5[2]
+    if inSearch5 and newBar5
+        if bullFvg
+            array.push(live_fvg_highs, h5[2])
+            array.push(live_fvg_lows, l5)
+            array.push(live_fvg_sides, 1)
+            array.push(live_fvg_times, t5)
+        if bearFvg
+            array.push(live_fvg_highs, h5)
+            array.push(live_fvg_lows, l5[2])
+            array.push(live_fvg_sides, -1)
+            array.push(live_fvg_times, t5)
+        last_side = array.size(live_fvg_sides) > 0 ? array.get(live_fvg_sides, array.size(live_fvg_sides) - 1) : na
+        if last_side == 1 and array.size(live_fvg_sides) > 1
+            for i = array.size(live_fvg_sides) - 2 to 0 by -1
+                if array.get(live_fvg_sides, i) == -1
+                    bull_high = array.get(live_fvg_highs, array.size(live_fvg_highs) - 1)
+                    bull_low  = array.get(live_fvg_lows,  array.size(live_fvg_lows) - 1)
+                    bull_time = array.get(live_fvg_times, array.size(live_fvg_times) - 1)
+                    bear_high = array.get(live_fvg_highs, i)
+                    bear_low  = array.get(live_fvg_lows,  i)
+                    bear_time = array.get(live_fvg_times, i)
+                    overTop = math.min(bull_low, bear_low)
+                    overBot = math.max(bull_high, bear_high)
                     if overTop > overBot
                         id = nextBprId
                         nextBprId += 1
-                        tStart = math.min(tB, tS)
+                        tStart = math.min(bull_time, bear_time)
                         make_bpr(tStart, overTop, overBot, id)
-            if bearFvg
-                tS   := request.security(syminfo.tickerid, "5", time,    gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
-                topS := request.security(syminfo.tickerid, "5", low[2],  gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
-                botS := request.security(syminfo.tickerid, "5", high[1], gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
-                if not na(topB)
-                    overTop = math.min(topB, topS)
-                    overBot = math.max(botB, botS)
+                    break
+        if last_side == -1 and array.size(live_fvg_sides) > 1
+            for i = array.size(live_fvg_sides) - 2 to 0 by -1
+                if array.get(live_fvg_sides, i) == 1
+                    bear_high = array.get(live_fvg_highs, array.size(live_fvg_highs) - 1)
+                    bear_low  = array.get(live_fvg_lows,  array.size(live_fvg_lows) - 1)
+                    bear_time = array.get(live_fvg_times, array.size(live_fvg_times) - 1)
+                    bull_high = array.get(live_fvg_highs, i)
+                    bull_low  = array.get(live_fvg_lows,  i)
+                    bull_time = array.get(live_fvg_times, i)
+                    overTop = math.min(bear_low, bull_low)
+                    overBot = math.max(bear_high, bull_high)
                     if overTop > overBot
                         id = nextBprId
                         nextBprId += 1
-                        tStart = math.min(tB, tS)
+                        tStart = math.min(bear_time, bull_time)
                         make_bpr(tStart, overTop, overBot, id)
-        update_live_styles()
-    //--- Preview logic (always scans, no session gates)
-    if pvOn
-        tPv   = request.security(syminfo.tickerid, pvTf, time,    gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
-        hPv   = request.security(syminfo.tickerid, pvTf, high,    gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
-        lPv   = request.security(syminfo.tickerid, pvTf, low,     gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
-        cPv   = request.security(syminfo.tickerid, pvTf, close,   gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
-        // HTF event flags (confirmed only):
-        bullFVG = request.security(syminfo.tickerid, pvTf, barstate.isconfirmed and low[1] > high[2], gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
-        bearFVG = request.security(syminfo.tickerid, pvTf, barstate.isconfirmed and high[1] < low[2],  gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
-        newBull = bullFVG and not bullFVG[1]
-        newBear = bearFVG and not bearFVG[1]
-        if newBull
-            pvTopB := lPv[1]
-            pvBotB := hPv[2]
-            pvTB   := tPv[0]
-        if newBear
-            pvTopS := lPv[2]
-            pvBotS := hPv[1]
-            pvTS   := tPv[0]
-        if not na(pvTopB) and not na(pvTopS)
-            overTop = math.min(pvTopB, pvTopS)
-            overBot = math.max(pvBotB, pvBotS)
-            if overTop > overBot
-                tStart = math.min(pvTB, pvTS)
-                make_preview_bpr(tStart, overTop, overBot)
-        i = 0
-        while i < array.size(pvBoxes)
-            top = getFloat(pvTops, i)
-            bot = getFloat(pvBots, i)
-            tC  = getInt(pvTimes, i)
-            if not na(top) and not na(bot) and (tPv > tC) and ((cPv > top) or (cPv < bot))
-                safeDelBox(getBox(pvBoxes, i))
-                safeDelLine(getLine(pvLines, i))
-                safeDelLabel(getLabel(pvLabels, i))
-                array.remove(pvBoxes, i)
-                array.remove(pvLines, i)
-                array.remove(pvLabels, i)
-                array.remove(pvTops, i)
-                array.remove(pvBots, i)
-                array.remove(pvTimes, i)
-            else
-                i += 1
-        while array.size(pvBoxes) > pvN
-            safeDelBox(array.shift(pvBoxes))
-            safeDelLine(array.shift(pvLines))
-            safeDelLabel(array.shift(pvLabels))
-            array.shift(pvTops)
-            array.shift(pvBots)
-            array.shift(pvTimes)
-        update_preview_styles()
+                    break
+    update_live_styles()
+
+//--- Preview logic (BPR detection בדיוק כמו live, רק פי HTF)
+if pvOn
+    tPv   = request.security(syminfo.tickerid, pvTf, time,    gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+    hPv   = request.security(syminfo.tickerid, pvTf, high,    gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+    lPv   = request.security(syminfo.tickerid, pvTf, low,     gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+    cPv   = request.security(syminfo.tickerid, pvTf, close,   gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+    bullFvg_pv = lPv > hPv[2]
+    bearFvg_pv = hPv < lPv[2]
+    if bullFvg_pv
+        array.push(pv_fvg_highs, hPv[2])
+        array.push(pv_fvg_lows, lPv)
+        array.push(pv_fvg_sides, 1)
+        array.push(pv_fvg_times, tPv)
+    if bearFvg_pv
+        array.push(pv_fvg_highs, hPv)
+        array.push(pv_fvg_lows, lPv[2])
+        array.push(pv_fvg_sides, -1)
+        array.push(pv_fvg_times, tPv)
+    last_side_pv = array.size(pv_fvg_sides) > 0 ? array.get(pv_fvg_sides, array.size(pv_fvg_sides) - 1) : na
+    if last_side_pv == 1 and array.size(pv_fvg_sides) > 1
+        for i = array.size(pv_fvg_sides) - 2 to 0 by -1
+            if array.get(pv_fvg_sides, i) == -1
+                bull_high = array.get(pv_fvg_highs, array.size(pv_fvg_highs) - 1)
+                bull_low  = array.get(pv_fvg_lows,  array.size(pv_fvg_lows) - 1)
+                bull_time = array.get(pv_fvg_times, array.size(pv_fvg_times) - 1)
+                bear_high = array.get(pv_fvg_highs, i)
+                bear_low  = array.get(pv_fvg_lows,  i)
+                bear_time = array.get(pv_fvg_times, i)
+                overTop = math.min(bull_low, bear_low)
+                overBot = math.max(bull_high, bear_high)
+                if overTop > overBot
+                    tStart = math.min(bull_time, bear_time)
+                    make_preview_bpr(tStart, overTop, overBot)
+                break
+    if last_side_pv == -1 and array.size(pv_fvg_sides) > 1
+        for i = array.size(pv_fvg_sides) - 2 to 0 by -1
+            if array.get(pv_fvg_sides, i) == 1
+                bear_high = array.get(pv_fvg_highs, array.size(pv_fvg_highs) - 1)
+                bear_low  = array.get(pv_fvg_lows,  array.size(pv_fvg_lows) - 1)
+                bear_time = array.get(pv_fvg_times, array.size(pv_fvg_times) - 1)
+                bull_high = array.get(pv_fvg_highs, i)
+                bull_low  = array.get(pv_fvg_lows,  i)
+                bull_time = array.get(pv_fvg_times, i)
+                overTop = math.min(bear_low, bull_low)
+                overBot = math.max(bear_high, bull_high)
+                if overTop > overBot
+                    tStart = math.min(bear_time, bull_time)
+                    make_preview_bpr(tStart, overTop, overBot)
+                break
+    while array.size(pvBoxes) > pvN
+        safeDelBox(array.shift(pvBoxes))
+        safeDelLine(array.shift(pvLines))
+        safeDelLabel(array.shift(pvLabels))
+        array.shift(pvTops)
+        array.shift(pvBots)
+        array.shift(pvTimes)
+    update_preview_styles()
