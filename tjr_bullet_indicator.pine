@@ -45,7 +45,7 @@ pvN    = input.int(4, "Show last N", minval=0, maxval=10, group=groupBPR, inline
 //------------------ HELPERS ------------------//
 labelSizeFromStr(s) => s == "Small" ? size.small : s == "Normal" ? size.normal : size.tiny
 
-placeLabel(top, bot, t0) =>
+placeLabel(top, bot, t0, isPreview) =>
     padY = math.max((top - bot) * 0.02, syminfo.mintick * 2)
     minH = syminfo.mintick * (labelOpt == "Tiny" ? 6 : labelOpt == "Small" ? 10 : 14)
     y = (top - bot) >= minH ? (top - padY) : (top + padY)
@@ -58,19 +58,14 @@ HHMM(strT) =>
     m = int(str.tonumber((array.size(parts) > 1) ? array.get(parts, 1) : "0"))
     str.tostring(h, "00") + str.tostring(m, "00")
 
-// Adds one minute to an HH:MM string and wraps hour at 24
 HHMMplus1(strT) =>
     parts = str.split(strT, ":")
     h = int(str.tonumber((array.size(parts) > 0) ? array.get(parts, 0) : "0"))
     m = int(str.tonumber((array.size(parts) > 1) ? array.get(parts, 1) : "0"))
     m += 1
     if m == 60
-        // minute overflow: reset minutes and advance the hour
         m := 0
         h += 1
-    // wrap hour to 0 when reaching 24 for next-day rollover
-    h := h % 24
-    // return formatted time string using wrapped hour value
     str.tostring(h, "00") + str.tostring(m, "00")
 
 tfMinutes(tf) =>
@@ -86,6 +81,9 @@ var liveLabels = array.new_label()
 var pvBoxes = array.new_box()
 var pvLines = array.new_line()
 var pvLabels = array.new_label()
+var pvTops = array.new_float()
+var pvBots = array.new_float()
+var pvTimes = array.new_int()
 
 // For live session FVGs
 var live_fvg_highs = array.new_float()
@@ -98,9 +96,6 @@ var pv_fvg_highs = array.new_float()
 var pv_fvg_lows = array.new_float()
 var pv_fvg_sides = array.new_int()
 var pv_fvg_times = array.new_int()
-
-var hideIds = array.new_int()
-var bool inDisplayTF = false
 
 //------------------- UTILITIES -------------------//
 reset_live() =>
@@ -125,6 +120,9 @@ reset_preview() =>
     array.clear(pvBoxes)
     array.clear(pvLines)
     array.clear(pvLabels)
+    array.clear(pvTops)
+    array.clear(pvBots)
+    array.clear(pvTimes)
     array.clear(pv_fvg_highs)
     array.clear(pv_fvg_lows)
     array.clear(pv_fvg_sides)
@@ -135,64 +133,48 @@ pvFill = color.new(bprColor, 40)
 
 //------------------- BUILDERS -------------------//
 make_bpr(_tStart, _top, _bot, _id) =>
-    if not array.includes(hideIds, _id)
-        visB  = inDisplayTF ? fillA : color(na)
-        visBr = inDisplayTF ? color.black : color(na)
-        b = box.new(_tStart, _top, _tStart + 5 * 60000, _bot, xloc=xloc.bar_time, extend=extend.right, border_color=visBr, bgcolor=visB)
-        mid = (_top + _bot) / 2
-        [lx, ly, lsz] = placeLabel(_top, _bot, _tStart)
-        visLn = inDisplayTF and midlineOn ? color.black : color(na)
-        ln = line.new(_tStart, mid, _tStart + 5 * 60000, mid, xloc=xloc.bar_time, extend=extend.right, color=visLn, style=line.style_dashed)
-        visTxt = inDisplayTF ? color.black : color(na)
-        lb = label.new(lx, ly, "BPR #" + str.tostring(_id), xloc=xloc.bar_time, yloc=yloc.price, style=label.style_label_left, size=lsz, textcolor=visTxt, color=color(na))
-        array.push(ids, _id)
-        array.push(liveBoxes, b)
-        array.push(liveLines, ln)
-        array.push(liveLabels, lb)
-        while array.size(liveBoxes) > 500
-            safeDelBox(array.shift(liveBoxes))
-            safeDelLine(array.shift(liveLines))
-            safeDelLabel(array.shift(liveLabels))
-            array.shift(ids)
+    b = box.new(_tStart, _top, _tStart + 5 * 60000, _bot, xloc=xloc.bar_time, extend=extend.right, border_color=color.black, bgcolor=fillA)
+    mid = (_top + _bot) / 2
+    [lx, ly, lsz] = placeLabel(_top, _bot, _tStart, false)
+    ln = line.new(_tStart, mid, _tStart + 5 * 60000, mid, xloc=xloc.bar_time, extend=extend.right, color=midlineOn ? color.black : color(na), style=line.style_dashed)
+    lb = label.new(lx, ly, "BPR #" + str.tostring(_id), xloc=xloc.bar_time, yloc=yloc.price, style=label.style_label_left, size=lsz, textcolor=color.black, color=color(na))
+    array.push(ids, _id)
+    array.push(liveBoxes, b)
+    array.push(liveLines, ln)
+    array.push(liveLabels, lb)
+    while array.size(liveBoxes) > 500
+        safeDelBox(array.shift(liveBoxes))
+        safeDelLine(array.shift(liveLines))
+        safeDelLabel(array.shift(liveLabels))
+        array.shift(ids)
 
 make_preview_bpr(_tStart, _top, _bot) =>
     tfMs = tfMinutes(pvTf) * 60000
-    visB  = inDisplayTF ? pvFill : color(na)
-    visBr = inDisplayTF ? color.black : color(na)
-    b = box.new(_tStart, _top, _tStart + tfMs, _bot, xloc=xloc.bar_time, extend=extend.right, border_color=visBr, bgcolor=visB)
+    b = box.new(_tStart, _top, _tStart + tfMs, _bot, xloc=xloc.bar_time, extend=extend.right, border_color=color.black, bgcolor=pvFill)
     mid = (_top + _bot) / 2
-    [lx, ly, lsz] = placeLabel(_top, _bot, _tStart)
-    visLn = inDisplayTF and midlineOn ? color.black : color(na)
-    ln = line.new(_tStart, mid, _tStart + tfMs, mid, xloc=xloc.bar_time, extend=extend.right, color=visLn, style=line.style_dashed)
-    visTxt = inDisplayTF ? color.black : color(na)
-    lb = label.new(lx, ly, "BPR [PV]", xloc=xloc.bar_time, yloc=yloc.price, style=label.style_label_left, size=lsz, textcolor=visTxt, color=color(na))
+    [lx, ly, lsz] = placeLabel(_top, _bot, _tStart, true)
+    ln = line.new(_tStart, mid, _tStart + tfMs, mid, xloc=xloc.bar_time, extend=extend.right, color=midlineOn ? color.black : color(na), style=line.style_dashed)
+    lb = label.new(lx, ly, "BPR [PV]", xloc=xloc.bar_time, yloc=yloc.price, style=label.style_label_left, size=lsz, textcolor=color.black, color=color(na))
     array.push(pvBoxes, b)
     array.push(pvLines, ln)
     array.push(pvLabels, lb)
+    array.push(pvTops, _top)
+    array.push(pvBots, _bot)
+    array.push(pvTimes, _tStart)
 
 update_live_styles() =>
-    i = 0
-    while i < array.size(liveBoxes)
-        id = getInt(ids, i)
-        if array.includes(hideIds, id)
-            safeDelBox(array.remove(liveBoxes, i))
-            safeDelLine(array.remove(liveLines, i))
-            safeDelLabel(array.remove(liveLabels, i))
-            array.remove(ids, i)
-            continue
+    for i = 0 to array.size(liveBoxes) - 1
         b = getBox(liveBoxes, i)
         ln = getLine(liveLines, i)
         lb = getLabel(liveLabels, i)
         if not na(b)
-            box.set_bgcolor(b, inDisplayTF ? fillA : color(na))
-            box.set_border_color(b, inDisplayTF ? color.black : color(na))
+            box.set_bgcolor(b, fillA)
         if not na(ln)
-            line.set_color(ln, inDisplayTF and midlineOn ? color.black : color(na))
+            line.set_color(ln, midlineOn ? color.black : color(na))
         if not na(lb)
-            label.set_textcolor(lb, inDisplayTF ? color.black : color(na))
+            label.set_textcolor(lb, color.black)
             label.set_color(lb, color(na))
             label.set_size(lb, labelSizeFromStr(labelOpt))
-        i += 1
 
 update_preview_styles() =>
     for i = 0 to array.size(pvBoxes) - 1
@@ -200,13 +182,11 @@ update_preview_styles() =>
         ln = getLine(pvLines, i)
         lb = getLabel(pvLabels, i)
         if not na(b)
-            box.set_bgcolor(b, inDisplayTF ? pvFill : color(na))
-            box.set_border_color(b, inDisplayTF ? color.black : color(na))
+            box.set_bgcolor(b, pvFill)
         if not na(ln)
-            line.set_color(ln, inDisplayTF and midlineOn ? color.black : color(na))
+            line.set_color(ln, midlineOn ? color.black : color(na))
         if not na(lb)
             label.set_color(lb, color(na))
-            label.set_textcolor(lb, inDisplayTF ? color.black : color(na))
             label.set_size(lb, labelSizeFromStr(labelOpt))
 
 //------------------- SESSION & TIME -------------------//
@@ -215,7 +195,7 @@ sessDisplay = HHMM(displayStart) + "-" + HHMM(displayEnd)
 sessDelete  = HHMM(deleteAt)     + "-" + HHMMplus1(deleteAt)
 TZ = "Asia/Jerusalem"
 inSearch5   = inSess("5", sessSearch, TZ)
-inDisplayTF := inSess(timeframe.period, sessDisplay, TZ)
+inDisplayTF = inSess(timeframe.period, sessDisplay, TZ)
 tDel        = time("1", sessDelete, TZ)
 cleanup     = not na(tDel) and na(tDel[1])
 
@@ -229,16 +209,6 @@ if barstate.isnew
             reset_live()
         if not pvOn and (array.size(pvBoxes) > 0 or array.size(pvLines) > 0 or array.size(pvLabels) > 0)
             reset_preview()
-    array.clear(hideIds)
-    id1 = int(str.tonumber(str.trim(hideId1)))
-    if not na(id1) and not array.includes(hideIds, id1)
-        array.push(hideIds, id1)
-    id2 = int(str.tonumber(str.trim(hideId2)))
-    if not na(id2) and not array.includes(hideIds, id2)
-        array.push(hideIds, id2)
-    id3 = int(str.tonumber(str.trim(hideId3)))
-    if not na(id3) and not array.includes(hideIds, id3)
-        array.push(hideIds, id3)
 
 //--- LIVE logic (5min session-gated, זיהוי bpr מדויק)
 if onOff
@@ -370,4 +340,7 @@ if pvOn
         safeDelBox(array.shift(pvBoxes))
         safeDelLine(array.shift(pvLines))
         safeDelLabel(array.shift(pvLabels))
+        array.shift(pvTops)
+        array.shift(pvBots)
+        array.shift(pvTimes)
     update_preview_styles()
