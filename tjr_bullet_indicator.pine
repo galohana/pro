@@ -277,70 +277,107 @@ if onOff
                     break
     update_live_styles()
 
-//--- Preview logic (BPR detection בדיוק כמו live, רק פי HTF)
+//--- Preview logic (HTF only: new bar + close-only invalidation + auto reset on pvTf change)
+var string _pvKey = ""
+currKey = syminfo.tickerid + "|" + pvTf
+if currKey != _pvKey
+    reset_preview()
+    _pvKey := currKey
+
 if pvOn
-    tPv   = request.security(syminfo.tickerid, pvTf, time,    gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
-    hPv   = request.security(syminfo.tickerid, pvTf, high,    gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
-    lPv   = request.security(syminfo.tickerid, pvTf, low,     gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
-    cPv   = request.security(syminfo.tickerid, pvTf, close,   gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
-    bullFvg_pv = lPv > hPv[2]
-    bearFvg_pv = hPv < lPv[2]
-    if bullFvg_pv
-        array.push(pv_fvg_highs, hPv[2])
-        array.push(pv_fvg_lows, lPv)
-        array.push(pv_fvg_sides, 1)
-        array.push(pv_fvg_times, tPv)
-    if bearFvg_pv
-        array.push(pv_fvg_highs, hPv)
-        array.push(pv_fvg_lows, lPv[2])
-        array.push(pv_fvg_sides, -1)
-        array.push(pv_fvg_times, tPv)
-    // invalidate by close-only (wick OK): bull invalid if close <= lower bound; bear invalid if close >= upper bound
-    j=0
-    while j<array.size(pv_fvg_sides)
-        s = array.get(pv_fvg_sides,j)
-        hi= array.get(pv_fvg_highs,j), lo=array.get(pv_fvg_lows,j)
-        inv = (s== 1 and cPv <= hi) or (s==-1 and cPv >= lo)
-        if inv
-            array.remove(pv_fvg_highs,j), array.remove(pv_fvg_lows,j), array.remove(pv_fvg_sides,j), array.remove(pv_fvg_times,j)
-        else
-            j += 1
-    last_side_pv = array.size(pv_fvg_sides) > 0 ? array.get(pv_fvg_sides, array.size(pv_fvg_sides) - 1) : na
-    if last_side_pv == 1 and array.size(pv_fvg_sides) > 1
-        for k = array.size(pv_fvg_sides) - 2 to 0
-            if array.get(pv_fvg_sides, k) == -1
-                bull_high = array.get(pv_fvg_highs, array.size(pv_fvg_highs) - 1)
-                bull_low  = array.get(pv_fvg_lows,  array.size(pv_fvg_lows) - 1)
-                bull_time = array.get(pv_fvg_times, array.size(pv_fvg_times) - 1)
-                bear_high = array.get(pv_fvg_highs, k)
-                bear_low  = array.get(pv_fvg_lows,  k)
-                bear_time = array.get(pv_fvg_times, k)
-                overTop = math.min(bull_low, bear_low)
-                overBot = math.max(bull_high, bear_high)
-                if overTop > overBot
-                    tStart = math.min(bull_time, bear_time)
-                    make_preview_bpr(tStart, overTop, overBot)
-                break
-    if last_side_pv == -1 and array.size(pv_fvg_sides) > 1
-        for k = array.size(pv_fvg_sides) - 2 to 0
-            if array.get(pv_fvg_sides, k) == 1
-                bear_high = array.get(pv_fvg_highs, array.size(pv_fvg_highs) - 1)
-                bear_low  = array.get(pv_fvg_lows,  array.size(pv_fvg_lows) - 1)
-                bear_time = array.get(pv_fvg_times, array.size(pv_fvg_times) - 1)
-                bull_high = array.get(pv_fvg_highs, k)
-                bull_low  = array.get(pv_fvg_lows,  k)
-                bull_time = array.get(pv_fvg_times, k)
-                overTop = math.min(bear_low, bull_low)
-                overBot = math.max(bear_high, bull_high)
-                if overTop > overBot
-                    tStart = math.min(bear_time, bull_time)
-                    make_preview_bpr(tStart, overTop, overBot)
-                break
-    while array.size(pvBoxes) > pvN
-        safeDelBox(array.shift(pvBoxes))
-        safeDelLine(array.shift(pvLines))
-        safeDelLabel(array.shift(pvLabels))
-        array.shift(pvTops)
-        array.shift(pvBots)
-        array.shift(pvTimes)
-    update_preview_styles()
+    // sample HTF once and act ONLY on a new HTF bar
+    tHT = request.security(syminfo.tickerid, pvTf, time,  gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+    hHT = request.security(syminfo.tickerid, pvTf, high,  gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+    lHT = request.security(syminfo.tickerid, pvTf, low,   gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+    cHT = request.security(syminfo.tickerid, pvTf, close, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+    newHT = tHT != tHT[1]
+
+    if newHT
+        // 1) detect fresh HTF FVGs (ICT rules)
+        bullFVG = lHT > hHT[2]
+        bearFVG = hHT < lHT[2]
+        if bullFVG
+            array.push(pv_fvg_highs, hHT[2])
+            array.push(pv_fvg_lows,  lHT)
+            array.push(pv_fvg_sides, 1)
+            array.push(pv_fvg_times, tHT)
+        if bearFVG
+            array.push(pv_fvg_highs, hHT)
+            array.push(pv_fvg_lows,  lHT[2])
+            array.push(pv_fvg_sides, -1)
+            array.push(pv_fvg_times, tHT)
+
+        // 2) close-only invalidation of stored FVGs
+        i = 0
+        while i < array.size(pv_fvg_sides)
+            s  = array.get(pv_fvg_sides, i)
+            hi = array.get(pv_fvg_highs, i)
+            lo = array.get(pv_fvg_lows,  i)
+            inv = (s == 1 and cHT <= hi) or (s == -1 and cHT >= lo)
+            if inv
+                array.remove(pv_fvg_highs, i)
+                array.remove(pv_fvg_lows,  i)
+                array.remove(pv_fvg_sides, i)
+                array.remove(pv_fvg_times, i)
+            else
+                i += 1
+
+        // 3) build BPR ONLY from overlap of the most recent opposite FVGs
+        lastSide = array.size(pv_fvg_sides) > 0 ? array.get(pv_fvg_sides, array.size(pv_fvg_sides) - 1) : na
+        if lastSide == 1 and array.size(pv_fvg_sides) > 1
+            // last is bull -> search last bear before it
+            for k = array.size(pv_fvg_sides) - 2 to 0
+                if array.get(pv_fvg_sides, k) == -1
+                    bull_hi = array.get(pv_fvg_highs, array.size(pv_fvg_highs) - 1)
+                    bull_lo = array.get(pv_fvg_lows,  array.size(pv_fvg_lows)  - 1)
+                    bear_hi = array.get(pv_fvg_highs, k)
+                    bear_lo = array.get(pv_fvg_lows,  k)
+                    overTop = math.min(bull_lo, bear_lo)
+                    overBot = math.max(bull_hi, bear_hi)
+                    if overTop > overBot
+                        tStart = math.min(array.get(pv_fvg_times, array.size(pv_fvg_times) - 1), array.get(pv_fvg_times, k))
+                        make_preview_bpr(tStart, overTop, overBot)
+                    break
+        if lastSide == -1 and array.size(pv_fvg_sides) > 1
+            // last is bear -> search last bull before it
+            for k = array.size(pv_fvg_sides) - 2 to 0
+                if array.get(pv_fvg_sides, k) == 1
+                    bear_hi = array.get(pv_fvg_highs, array.size(pv_fvg_highs) - 1)
+                    bear_lo = array.get(pv_fvg_lows,  array.size(pv_fvg_lows)  - 1)
+                    bull_hi = array.get(pv_fvg_highs, k)
+                    bull_lo = array.get(pv_fvg_lows,  k)
+                    overTop = math.min(bear_lo, bull_lo)
+                    overBot = math.max(bear_hi, bull_hi)
+                    if overTop > overBot
+                        tStart = math.min(array.get(pv_fvg_times, array.size(pv_fvg_times) - 1), array.get(pv_fvg_times, k))
+                        make_preview_bpr(tStart, overTop, overBot)
+                    break
+
+        // 4) close-only invalidation of ALREADY-DRAWN preview boxes (prevents 4H clutter)
+        j = 0
+        while j < array.size(pvBoxes)
+            top = array.get(pvTops, j)
+            bot = array.get(pvBots, j)
+            // cancel only on body close through the zone; wicks allowed
+            inval = (cHT > top) or (cHT < bot)
+            if inval
+                safeDelBox(getBox(pvBoxes, j))
+                safeDelLine(getLine(pvLines, j))
+                safeDelLabel(getLabel(pvLabels, j))
+                array.remove(pvBoxes, j)
+                array.remove(pvLines, j)
+                array.remove(pvLabels, j)
+                array.remove(pvTops, j)
+                array.remove(pvBots, j)
+                array.remove(pvTimes, j)
+            else
+                j += 1
+
+        // 5) keep only last N preview boxes and refresh styles
+        while array.size(pvBoxes) > pvN
+            safeDelBox(array.shift(pvBoxes))
+            safeDelLine(array.shift(pvLines))
+            safeDelLabel(array.shift(pvLabels))
+            array.shift(pvTops), array.shift(pvBots), array.shift(pvTimes)
+
+        update_preview_styles()
