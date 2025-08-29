@@ -20,6 +20,26 @@ getInt(a, i)   => (i >= 0 and i < array.size(a)) ? array.get(a, i) : int(na)
 getBool(a, i)  => (i >= 0 and i < array.size(a)) ? array.get(a, i) : bool(na)
 inSess(tf, s, tz) => not na(time(tf, s, tz))
 
+//------------------- TIME FLAGS -------------------//
+HHMM(strT) =>
+    parts = str.split(strT, ":")
+    h = int(str.tonumber((array.size(parts) > 0) ? array.get(parts, 0) : "0"))
+    m = int(str.tonumber((array.size(parts) > 1) ? array.get(parts, 1) : "0"))
+    str.tostring(h, "00") + str.tostring(m, "00")
+
+HHMMplus1(strT) =>
+    parts = str.split(strT, ":")
+    h = int(str.tonumber((array.size(parts) > 0) ? array.get(parts, 0) : "0"))
+    m = int(str.tonumber((array.size(parts) > 1) ? array.get(parts, 1) : "0"))
+    m += 1
+    if m == 60
+        m := 0
+        h += 1
+    str.tostring(h, "00") + str.tostring(m, "00")
+
+tfMinutes(tf) =>
+    tf == "D" ? 1440 : int(str.tonumber(tf))
+
 //-------------------- INPUTS --------------------//
 groupBPR = "BPR"
 onOff = input.bool(true, "On/Off", group=groupBPR, inline="BPR_HDR")
@@ -50,26 +70,6 @@ placeLabel(top, bot, t0, isPreview) =>
     minH = syminfo.mintick * (labelOpt == "Tiny" ? 6 : labelOpt == "Small" ? 10 : 14)
     y = (top - bot) >= minH ? (top - padY) : (top + padY)
     [t0 + 30 * 1000, y, labelSizeFromStr(labelOpt)]
-
-//------------------- TIME FLAGS -------------------//
-HHMM(strT) =>
-    parts = str.split(strT, ":")
-    h = int(str.tonumber((array.size(parts) > 0) ? array.get(parts, 0) : "0"))
-    m = int(str.tonumber((array.size(parts) > 1) ? array.get(parts, 1) : "0"))
-    str.tostring(h, "00") + str.tostring(m, "00")
-
-HHMMplus1(strT) =>
-    parts = str.split(strT, ":")
-    h = int(str.tonumber((array.size(parts) > 0) ? array.get(parts, 0) : "0"))
-    m = int(str.tonumber((array.size(parts) > 1) ? array.get(parts, 1) : "0"))
-    m += 1
-    if m == 60
-        m := 0
-        h += 1
-    str.tostring(h, "00") + str.tostring(m, "00")
-
-tfMinutes(tf) =>
-    tf == "D" ? 1440 : int(str.tonumber(tf))
 
 //------------------- DATA MODEL -------------------//
 var nextBprId = 1
